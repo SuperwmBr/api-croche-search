@@ -1,0 +1,22 @@
+[Unit]
+Description=Tutoriais Croche Search API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/tutoriaiscroche-search-api
+EnvironmentFile=/var/www/tutoriaiscroche-search-api/.env
+ExecStart=/usr/bin/node src/server.js
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/var/www/tutoriaiscroche-search-api
+
+[Install]
+WantedBy=multi-user.target
