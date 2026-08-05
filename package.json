@@ -1,0 +1,25 @@
+{
+  "name": "tutoriaiscroche-search-api",
+  "version": "0.1.0",
+  "private": true,
+  "description": "API vertical de busca especializada em crochê para o Tutoriais Crochê.",
+  "type": "module",
+  "main": "src/server.js",
+  "engines": { "node": ">=22.0.0" },
+  "scripts": {
+    "dev": "node --watch src/server.js",
+    "start": "node src/server.js",
+    "test": "node --test",
+    "check": "node --check src/server.js && node --test"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.6.1",
+    "express": "^5.1.0",
+    "helmet": "^8.1.0",
+    "lru-cache": "^11.1.0",
+    "pino": "^9.7.0",
+    "pino-http": "^10.5.0",
+    "zod": "^4.0.17"
+  }
+}
