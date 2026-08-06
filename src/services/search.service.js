@@ -11,6 +11,7 @@ import { env } from '../config/env.js';
 
 const cacheKey = (params) => createHash('sha256').update(JSON.stringify(params)).digest('hex');
 const timeoutSignal = (ms) => AbortSignal.timeout(ms);
+const isProviderFailure = (status) => status === 'error' || status === 'timeout';
 
 export async function search(params) {
   const key = cacheKey(params);
@@ -40,7 +41,7 @@ export async function search(params) {
   });
   const ranked = raw.map((item) => ({ ...item, score: calculateScore(item.rankingSignals ?? {}) })).sort((a, b) => b.score - a.score);
   const results = deduplicateResults(ranked).slice(0, params.limit);
-  const payload = { query: params.q, expandedQueries: variants, total: results.length, page: params.page, limit: params.limit, partial: Object.values(providers).some((status) => status !== 'ok'), providers, elapsedMs: Math.round(performance.now() - startedAt), results, cache: { layer: null, hit: false } };
+  const payload = { query: params.q, expandedQueries: variants, total: results.length, page: params.page, limit: params.limit, partial: Object.values(providers).some(isProviderFailure), providers, elapsedMs: Math.round(performance.now() - startedAt), results, cache: { layer: null, hit: false } };
   memoryCache.set(key, payload);
   return payload;
 }
