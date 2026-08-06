@@ -20,9 +20,14 @@ async function fetchPage({ query, safeSearch, categories, page, signal }) {
 
 export async function searchSearxng({ query, limit, safeSearch, signal, source = 'all', categories = 'general', pages = 1 }) {
   const pageNumbers = Array.from({ length: Math.max(1, Math.min(pages, 3)) }, (_, index) => index + 1);
-  const bodies = await Promise.all(pageNumbers.map((page) => fetchPage({ query, safeSearch, categories, page, signal })));
+  const settled = await Promise.allSettled(pageNumbers.map((page) => fetchPage({ query, safeSearch, categories, page, signal })));
+  const fulfilled = settled.filter((outcome) => outcome.status === 'fulfilled');
+  const rejected = settled.filter((outcome) => outcome.status === 'rejected');
+
+  if (!fulfilled.length) throw rejected[0]?.reason ?? new Error('SearXNG returned no usable page');
+
   const seen = new Set();
-  const raw = bodies.flatMap((body) => body.results ?? []).filter((item) => {
+  const raw = fulfilled.flatMap((outcome) => outcome.value.results ?? []).filter((item) => {
     if (!item?.url || seen.has(item.url)) return false;
     seen.add(item.url);
     return source === 'all' || matchesSource(item.url, source);
@@ -30,6 +35,14 @@ export async function searchSearxng({ query, limit, safeSearch, signal, source =
 
   return {
     configured: true,
+    partial: rejected.length > 0,
+    diagnostics: {
+      pagesRequested: pageNumbers.length,
+      pagesCompleted: fulfilled.length,
+      pagesFailed: rejected.length,
+      rawResults: fulfilled.reduce((total, outcome) => total + (outcome.value.results?.length ?? 0), 0),
+      matchedResults: raw.length
+    },
     results: raw.map((item, index) => {
       const origin = source === 'all' ? sourceFromUrl(item.url, 'web') : source;
       return {
