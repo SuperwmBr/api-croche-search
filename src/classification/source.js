@@ -64,9 +64,9 @@ function toPortuguese(query) {
 
 function toEnglish(query) {
   return compact(query
-    .replace(/flores?\s+de\s+croch[eê](?=\s|$|[.,;:!?])/gi, 'crochet flower')
+    .replace(/flor(?:es)?\s+de\s+croch[eê](?=\s|$|[.,;:!?])/gi, 'crochet flower')
     .replace(/croch[eê](?=\s|$|[.,;:!?])/gi, 'crochet')
-    .replace(/flores?(?=\s|$|[.,;:!?])/gi, 'flower')
+    .replace(/flor(?:es)?(?=\s|$|[.,;:!?])/gi, 'flower')
     .replace(/passo\s+a\s+passo(?=\s|$|[.,;:!?])/gi, 'tutorial')
     .replace(/iniciantes?(?=\s|$|[.,;:!?])/gi, 'beginner'));
 }
