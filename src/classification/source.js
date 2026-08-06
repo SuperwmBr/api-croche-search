@@ -64,11 +64,11 @@ function toPortuguese(query) {
 
 function toEnglish(query) {
   return compact(query
-    .replace(/\bflores?\s+de\s+croch[eê]\b/gi, 'crochet flower')
-    .replace(/\bcroch[eê]\b/gi, 'crochet')
-    .replace(/\bflores?\b/gi, 'flower')
-    .replace(/\bpasso\s+a\s+passo\b/gi, 'tutorial')
-    .replace(/\biniciantes?\b/gi, 'beginner'));
+    .replace(/flores?\s+de\s+croch[eê](?=\s|$|[.,;:!?])/gi, 'crochet flower')
+    .replace(/croch[eê](?=\s|$|[.,;:!?])/gi, 'crochet')
+    .replace(/flores?(?=\s|$|[.,;:!?])/gi, 'flower')
+    .replace(/passo\s+a\s+passo(?=\s|$|[.,;:!?])/gi, 'tutorial')
+    .replace(/iniciantes?(?=\s|$|[.,;:!?])/gi, 'beginner'));
 }
 
 export function buildSourceQuery(query, source) {
