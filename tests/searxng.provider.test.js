@@ -100,11 +100,12 @@ test('nao executa fallback quando a consulta principal ja atinge o alvo', async 
   let calls = 0;
   globalThis.fetch = async () => {
     calls += 1;
+    const callNumber = calls;
     return {
       ok: true,
       json: async () => ({
         results: [{
-          url: `https://www.tiktok.com/@croche/video/${calls}`,
+          url: `https://www.tiktok.com/@croche/video/${callNumber}`,
           title: 'Flor de crochê passo a passo',
           content: 'Tutorial de crochê',
           engine: 'duckduckgo videos',
