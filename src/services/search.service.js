@@ -7,7 +7,7 @@ import { searchInternal } from '../providers/d1/d1.provider.js';
 import { searchYouTube } from '../providers/youtube/youtube.provider.js';
 import { searchSearxng } from '../providers/searxng/searxng.provider.js';
 import { searchMeilisearch } from '../providers/meilisearch/meilisearch.provider.js';
-import { buildSourceQuery, categoriesForSource } from '../classification/source.js';
+import { buildSourceQueries, categoriesForSource } from '../classification/source.js';
 import { env } from '../config/env.js';
 
 const cacheKey = (params) => createHash('sha256').update(JSON.stringify(params)).digest('hex');
@@ -49,9 +49,12 @@ function buildCalls(params, query, offset) {
     if (source === 'youtube') {
       return [source, () => searchYouTube({ query, limit: params.limit_por_fonte, signal: timeoutSignal(env.SEARCH_PROVIDER_TIMEOUT_MS) })];
     }
+    const queries = buildSourceQueries(query, source);
     return [source, () => searchSearxng({
-      query: buildSourceQuery(query, source),
+      query: queries[0],
+      queries,
       limit: params.limit_por_fonte * 3,
+      targetResults: params.limit_por_fonte,
       safeSearch: params.safe_search,
       signal: timeoutSignal(env.SEARXNG_TIMEOUT_MS),
       source,
