@@ -67,7 +67,8 @@ export async function search(params) {
   const startedAt = performance.now();
   const variants = expandQuery(params.q);
   const query = variants[0];
-  const offset = (params.page - 1) * params.limit;
+  const pageSize = params.fonte?.length ? params.limit_por_fonte : params.limit;
+  const offset = (params.page - 1) * pageSize;
   const calls = buildCalls(params, query, offset);
   const names = Object.keys(calls);
   const settled = await Promise.allSettled(names.map((name) => calls[name]()));
@@ -92,7 +93,7 @@ export async function search(params) {
   let sourceCounts;
   if (params.fonte?.length) {
     results = params.fonte.flatMap((source) => (grouped[source] ?? []).slice(0, params.limit_por_fonte));
-    sourceCounts = Object.fromEntries(params.fonte.map((source) => [source, (grouped[source] ?? []).length]));
+    sourceCounts = Object.fromEntries(params.fonte.map((source) => [source, Math.min((grouped[source] ?? []).length, params.limit_por_fonte)]));
   } else {
     const combined = rankAndFilter(Object.values(grouped).flat());
     results = combined.slice(0, params.limit);
@@ -105,7 +106,7 @@ export async function search(params) {
     requestedSources: params.fonte ?? null,
     total: results.length,
     page: params.page,
-    limit: params.fonte?.length ? params.limit_por_fonte : params.limit,
+    limit: pageSize,
     limitMode: params.fonte?.length ? 'per_source' : 'total',
     partial: Object.values(providers).some(isProviderFailure),
     providers,
