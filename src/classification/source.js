@@ -85,7 +85,7 @@ export function buildSourceQueries(query, source, maxVariants = 4) {
     if (relaxed.length >= 3) variants.add(relaxed);
 
     const language = normalized(base);
-    if (/\b(crochet|flower|tutorial|step by step|beginner)\b/.test(language)) {
+    if (/\b(crochet|flower|step by step|beginner)\b/.test(language)) {
       variants.add(toPortuguese(base));
       variants.add(toPortuguese(relaxed));
     } else {
