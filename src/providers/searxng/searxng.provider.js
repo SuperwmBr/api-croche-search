@@ -18,30 +18,63 @@ async function fetchPage({ query, safeSearch, categories, page, signal }) {
   return response.json();
 }
 
-export async function searchSearxng({ query, limit, safeSearch, signal, source = 'all', categories = 'general', pages = 1 }) {
-  const pageNumbers = Array.from({ length: Math.max(1, Math.min(pages, 3)) }, (_, index) => index + 1);
-  const settled = await Promise.allSettled(pageNumbers.map((page) => fetchPage({ query, safeSearch, categories, page, signal })));
-  const fulfilled = settled.filter((outcome) => outcome.status === 'fulfilled');
-  const rejected = settled.filter((outcome) => outcome.status === 'rejected');
+async function settleRequests(requests) {
+  const settled = await Promise.allSettled(requests.map((request) => fetchPage(request)));
+  return {
+    bodies: settled.filter((outcome) => outcome.status === 'fulfilled').map((outcome) => outcome.value),
+    failures: settled.filter((outcome) => outcome.status === 'rejected').map((outcome) => outcome.reason)
+  };
+}
 
-  if (!fulfilled.length) throw rejected[0]?.reason ?? new Error('SearXNG returned no usable page');
-
+function collectMatches(bodies, source) {
   const seen = new Set();
-  const raw = fulfilled.flatMap((outcome) => outcome.value.results ?? []).filter((item) => {
+  const rawResults = bodies.flatMap((body) => body.results ?? []);
+  const matched = rawResults.filter((item) => {
     if (!item?.url || seen.has(item.url)) return false;
     seen.add(item.url);
     return source === 'all' || matchesSource(item.url, source);
-  }).slice(0, limit);
+  });
+  return { rawResults, matched };
+}
+
+export async function searchSearxng({ query, queries, limit, targetResults = limit, safeSearch, signal, source = 'all', categories = 'general', pages = 1 }) {
+  const queryVariants = Array.isArray(queries) && queries.length ? queries : [query];
+  const primaryQuery = queryVariants[0];
+  const pageNumbers = Array.from({ length: Math.max(1, Math.min(pages, 3)) }, (_, index) => index + 1);
+  const primary = await settleRequests(pageNumbers.map((page) => ({ query: primaryQuery, safeSearch, categories, page, signal })));
+  const allBodies = [...primary.bodies];
+  const allFailures = [...primary.failures];
+  let { matched } = collectMatches(allBodies, source);
+  let fallbackUsed = false;
+
+  if (matched.length < targetResults && queryVariants.length > 1 && !signal?.aborted) {
+    fallbackUsed = true;
+    const fallback = await settleRequests(queryVariants.slice(1).map((fallbackQuery) => ({ query: fallbackQuery, safeSearch, categories, page: 1, signal })));
+    allBodies.push(...fallback.bodies);
+    allFailures.push(...fallback.failures);
+    ({ matched } = collectMatches(allBodies, source));
+  }
+
+  if (!allBodies.length) throw allFailures[0] ?? new Error('SearXNG did not return any page');
+
+  const { rawResults } = collectMatches(allBodies, source);
+  const raw = matched.slice(0, limit);
+  const requestsCompleted = allBodies.length;
+  const requestsFailed = allFailures.length;
+  const requestsRequested = requestsCompleted + requestsFailed;
 
   return {
     configured: true,
-    partial: rejected.length > 0,
+    partial: requestsFailed > 0,
     diagnostics: {
-      pagesRequested: pageNumbers.length,
-      pagesCompleted: fulfilled.length,
-      pagesFailed: rejected.length,
-      rawResults: fulfilled.reduce((total, outcome) => total + (outcome.value.results?.length ?? 0), 0),
-      matchedResults: raw.length
+      pagesRequested: requestsRequested,
+      pagesCompleted: requestsCompleted,
+      pagesFailed: requestsFailed,
+      queriesRequested: fallbackUsed ? queryVariants.length : 1,
+      fallbackUsed,
+      queryVariants: fallbackUsed ? queryVariants : [primaryQuery],
+      rawResults: rawResults.length,
+      matchedResults: matched.length
     },
     results: raw.map((item, index) => {
       const origin = source === 'all' ? sourceFromUrl(item.url, 'web') : source;
