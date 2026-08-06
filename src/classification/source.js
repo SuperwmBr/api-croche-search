@@ -6,6 +6,9 @@ const SOURCE_DOMAINS = {
 
 export const SUPPORTED_SOURCES = ['internal', 'youtube', 'web', 'pdf', 'instagram', 'tiktok', 'pinterest'];
 
+const compact = (value) => value.replace(/\s+/g, ' ').trim();
+const normalized = (value) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+
 export function hostnameOf(url) {
   try {
     return new URL(url).hostname.replace(/^www\./, '').replace(/^m\./, '');
@@ -36,12 +39,63 @@ export function matchesSource(url, source) {
   return Boolean(host && SOURCE_DOMAINS[source]?.some((domain) => host === domain || host.endsWith(`.${domain}`)));
 }
 
+function sourceOperator(source) {
+  if (source === 'instagram') return 'site:instagram.com';
+  if (source === 'tiktok') return 'site:tiktok.com';
+  if (source === 'pinterest') return 'site:pinterest.com/pin';
+  if (source === 'pdf') return 'filetype:pdf';
+  return '';
+}
+
+function relaxQuery(query) {
+  return compact(query
+    .replace(/\b(tutorial\s+completo|passo\s+a\s+passo\s+completo|completo|completa|f[aá]cil|r[aá]pido|r[aá]pida|para\s+iniciantes?|iniciante|beginner(?:s)?|easy|complete)\b/gi, ' '));
+}
+
+function toPortuguese(query) {
+  return compact(query
+    .replace(/\bcrochet\b/gi, 'crochê')
+    .replace(/\bflowers?\b/gi, 'flor')
+    .replace(/\bstep\s+by\s+step\b/gi, 'passo a passo')
+    .replace(/\btutorial\b/gi, 'passo a passo')
+    .replace(/\bbeginners?\b/gi, 'iniciante'));
+}
+
+function toEnglish(query) {
+  return compact(query
+    .replace(/\bcroch[eê]\b/gi, 'crochet')
+    .replace(/\bflores?\b/gi, 'flower')
+    .replace(/\bpasso\s+a\s+passo\b/gi, 'tutorial')
+    .replace(/\biniciantes?\b/gi, 'beginner'));
+}
+
 export function buildSourceQuery(query, source) {
-  if (source === 'instagram') return `${query} site:instagram.com`;
-  if (source === 'tiktok') return `${query} site:tiktok.com`;
-  if (source === 'pinterest') return `${query} site:pinterest.com/pin`;
-  if (source === 'pdf') return `${query} filetype:pdf`;
-  return query;
+  const operator = sourceOperator(source);
+  return operator ? `${compact(query)} ${operator}` : compact(query);
+}
+
+export function buildSourceQueries(query, source, maxVariants = 4) {
+  const base = compact(query);
+  const variants = new Set([base]);
+
+  if (source === 'tiktok' || source === 'instagram') {
+    const relaxed = relaxQuery(base);
+    if (relaxed.length >= 3) variants.add(relaxed);
+
+    const language = normalized(base);
+    if (/\b(crochet|flower|tutorial|step by step|beginner)\b/.test(language)) {
+      variants.add(toPortuguese(base));
+      variants.add(toPortuguese(relaxed));
+    } else {
+      variants.add(toEnglish(base));
+      variants.add(toEnglish(relaxed));
+    }
+  }
+
+  return [...variants]
+    .filter((value) => value.length >= 3)
+    .slice(0, Math.max(1, maxVariants))
+    .map((value) => buildSourceQuery(value, source));
 }
 
 export function categoriesForSource(source) {
