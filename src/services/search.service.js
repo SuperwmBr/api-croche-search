@@ -12,7 +12,7 @@ import { env } from '../config/env.js';
 
 const cacheKey = (params) => createHash('sha256').update(JSON.stringify(params)).digest('hex');
 const timeoutSignal = (ms) => AbortSignal.timeout(ms);
-const isProviderFailure = (status) => status === 'error' || status === 'timeout';
+const isProviderFailure = (status) => status === 'error' || status === 'timeout' || status === 'partial';
 const CROCHET_CONFIDENCE_THRESHOLD = 0.5;
 
 function rankAndFilter(items) {
@@ -40,6 +40,8 @@ function buildCalls(params, query, offset) {
     };
   }
 
+  const searxPages = params.fonte.length >= 4 ? 2 : 3;
+
   return Object.fromEntries(params.fonte.map((source) => {
     if (source === 'internal') {
       return [source, () => searchInternal({ query, limit: params.limit_por_fonte, offset, signal: timeoutSignal(env.SEARCH_PROVIDER_TIMEOUT_MS) }).then((results) => ({ configured: env.d1Configured, results }))];
@@ -54,7 +56,7 @@ function buildCalls(params, query, offset) {
       signal: timeoutSignal(env.SEARXNG_TIMEOUT_MS),
       source,
       categories: categoriesForSource(source),
-      pages: 3
+      pages: searxPages
     })];
   }));
 }
@@ -73,18 +75,22 @@ export async function search(params) {
   const names = Object.keys(calls);
   const settled = await Promise.allSettled(names.map((name) => calls[name]()));
   const providers = {};
+  const providerDetails = {};
   const grouped = {};
 
   settled.forEach((outcome, index) => {
     const name = names[index];
     if (outcome.status === 'rejected') {
       providers[name] = outcome.reason?.name === 'TimeoutError' ? 'timeout' : 'error';
+      providerDetails[name] = { error: outcome.reason?.message ?? 'provider_failed' };
       grouped[name] = [];
     } else if (!outcome.value.configured) {
       providers[name] = 'not_configured';
+      providerDetails[name] = null;
       grouped[name] = [];
     } else {
-      providers[name] = 'ok';
+      providers[name] = outcome.value.partial ? 'partial' : 'ok';
+      providerDetails[name] = outcome.value.diagnostics ?? null;
       grouped[name] = rankAndFilter(outcome.value.results);
     }
   });
@@ -110,6 +116,7 @@ export async function search(params) {
     limitMode: params.fonte?.length ? 'per_source' : 'total',
     partial: Object.values(providers).some(isProviderFailure),
     providers,
+    providerDetails,
     sourceCounts,
     elapsedMs: Math.round(performance.now() - startedAt),
     results,
