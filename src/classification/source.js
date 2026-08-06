@@ -28,7 +28,7 @@ export function sourceFromUrl(url, fallback = 'web') {
 }
 
 export function matchesSource(url, source) {
-  if (source === 'web') return true;
+  if (source === 'web') return sourceFromUrl(url, 'web') === 'web';
   if (source === 'pdf') {
     try { return new URL(url).pathname.toLowerCase().endsWith('.pdf'); } catch { return false; }
   }
