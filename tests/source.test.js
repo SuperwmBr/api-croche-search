@@ -26,15 +26,15 @@ test('monta consultas dedicadas por fonte', () => {
 test('gera fallback em portugues para consulta social em ingles', () => {
   const queries = buildSourceQueries('crochet flower tutorial', 'tiktok');
   assert.equal(queries[0], 'crochet flower tutorial site:tiktok.com');
-  assert.ok(queries.includes('crochê flor passo a passo site:tiktok.com'));
+  assert.ok(queries.includes('flor de crochê passo a passo site:tiktok.com'));
   assert.equal(new Set(queries).size, queries.length);
   assert.ok(queries.length <= 4);
 });
 
-test('relaxa qualificadores e cria variante inglesa', () => {
+test('relaxa qualificadores e cria variante inglesa natural', () => {
   const queries = buildSourceQueries('flor de crochê fácil tutorial completo', 'instagram');
   assert.ok(queries.includes('flor de crochê site:instagram.com'));
-  assert.ok(queries.some((query) => query.includes('flower de crochet')));
+  assert.ok(queries.some((query) => query.includes('crochet flower')));
 });
 
 test('fontes nao sociais mantem somente a consulta principal', () => {
