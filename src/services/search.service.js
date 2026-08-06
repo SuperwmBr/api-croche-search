@@ -13,6 +13,11 @@ const cacheKey = (params) => createHash('sha256').update(JSON.stringify(params))
 const timeoutSignal = (ms) => AbortSignal.timeout(ms);
 const isProviderFailure = (status) => status === 'error' || status === 'timeout';
 
+// Abaixo disso o resultado não é considerado sobre crochê de verdade (ver
+// crochet-confidence.js) e é descartado antes de chegar em quem consome a
+// API — nenhum cliente precisa reimplementar esse filtro por conta própria.
+const CROCHET_CONFIDENCE_THRESHOLD = 0.5;
+
 export async function search(params) {
   const key = cacheKey(params);
   const cached = memoryCache.get(key);
@@ -40,8 +45,10 @@ export async function search(params) {
     else { providers[name] = 'ok'; raw.push(...outcome.value.results); }
   });
   const ranked = raw.map((item) => ({ ...item, score: calculateScore(item.rankingSignals ?? {}) })).sort((a, b) => b.score - a.score);
-  const results = deduplicateResults(ranked).slice(0, params.limit);
-  const payload = { query: params.q, expandedQueries: variants, total: results.length, page: params.page, limit: params.limit, partial: Object.values(providers).some(isProviderFailure), providers, elapsedMs: Math.round(performance.now() - startedAt), results, cache: { layer: null, hit: false } };
+  const relevant = ranked.filter((item) => (item.rankingSignals?.crochetConfidence ?? 0) >= CROCHET_CONFIDENCE_THRESHOLD);
+  const deduplicated = deduplicateResults(relevant);
+  const results = deduplicated.slice(0, params.limit);
+  const payload = { query: params.q, expandedQueries: variants, total: deduplicated.length, page: params.page, limit: params.limit, partial: Object.values(providers).some(isProviderFailure), providers, elapsedMs: Math.round(performance.now() - startedAt), results, cache: { layer: null, hit: false } };
   memoryCache.set(key, payload);
   return payload;
 }
