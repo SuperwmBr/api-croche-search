@@ -54,6 +54,7 @@ function relaxQuery(query) {
 
 function toPortuguese(query) {
   return compact(query
+    .replace(/\bcrochet\s+flowers?\b/gi, 'flor de crochê')
     .replace(/\bcrochet\b/gi, 'crochê')
     .replace(/\bflowers?\b/gi, 'flor')
     .replace(/\bstep\s+by\s+step\b/gi, 'passo a passo')
@@ -63,6 +64,7 @@ function toPortuguese(query) {
 
 function toEnglish(query) {
   return compact(query
+    .replace(/\bflores?\s+de\s+croch[eê]\b/gi, 'crochet flower')
     .replace(/\bcroch[eê]\b/gi, 'crochet')
     .replace(/\bflores?\b/gi, 'flower')
     .replace(/\bpasso\s+a\s+passo\b/gi, 'tutorial')
