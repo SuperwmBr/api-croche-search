@@ -19,7 +19,7 @@ test('filtra subdominios legitimos sem aceitar dominios parecidos', () => {
 test('monta consultas dedicadas por fonte', () => {
   assert.equal(buildSourceQuery('flor de crochê', 'instagram'), 'flor de crochê site:instagram.com');
   assert.equal(buildSourceQuery('flor de crochê', 'tiktok'), 'flor de crochê site:tiktok.com');
-  assert.equal(buildSourceQuery('flor de crochê', 'pinterest'), 'flor de crochê site:pinterest.com/pin');
+  assert.equal(buildSourceQuery('flor de crochê', 'pinterest'), 'flor de crochê site:pinterest.com');
   assert.equal(buildSourceQuery('flor de crochê', 'pdf'), 'flor de crochê filetype:pdf');
 });
 

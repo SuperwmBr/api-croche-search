@@ -15,7 +15,7 @@ npm test
 npm start
 ```
 
-Health check: `GET http://127.0.0.1:3210/api/health`
+Health check: `GET http://127.0.0.1:3200/api/health`
 
 Busca geral: `GET /api/busca?q=amigurumi+para+iniciante`
 

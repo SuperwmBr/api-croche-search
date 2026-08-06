@@ -42,7 +42,12 @@ export function matchesSource(url, source) {
 function sourceOperator(source) {
   if (source === 'instagram') return 'site:instagram.com';
   if (source === 'tiktok') return 'site:tiktok.com';
-  if (source === 'pinterest') return 'site:pinterest.com/pin';
+  // "site:dominio.com/caminho" (operador combinado) não é suportado de forma
+  // confiável fora do Google — testado ao vivo contra a API em produção:
+  // 1130 resultados brutos do SearXNG para "site:pinterest.com/pin", só 1
+  // batendo com pinterest.com de verdade (matchesSource já filtra por
+  // domínio depois, então basta restringir ao domínio aqui também).
+  if (source === 'pinterest') return 'site:pinterest.com';
   if (source === 'pdf') return 'filetype:pdf';
   return '';
 }
