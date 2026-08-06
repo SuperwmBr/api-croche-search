@@ -1,15 +1,19 @@
 import { z } from 'zod';
 import { env } from '../config/env.js';
 import { SUPPORTED_SOURCES } from '../classification/source.js';
+import { SUPPORTED_TYPES } from '../classification/type.js';
 
 const csv = z.string().transform((value) => value.split(',').map((item) => item.trim()).filter(Boolean));
 const sources = csv.refine((values) => values.every((value) => SUPPORTED_SOURCES.includes(value)), {
   message: `fontes permitidas: ${SUPPORTED_SOURCES.join(', ')}`
 });
+const types = csv.refine((values) => values.every((value) => SUPPORTED_TYPES.includes(value)), {
+  message: `tipos permitidos: ${SUPPORTED_TYPES.join(', ')}`
+});
 
 export const searchQuerySchema = z.object({
   q: z.string().trim().min(2).max(env.SEARCH_MAX_QUERY_LENGTH),
-  tipo: csv.optional(),
+  tipo: types.optional(),
   fonte: sources.optional(),
   idioma: z.string().trim().max(12).optional(),
   nivel: z.enum(['iniciante', 'intermediario', 'avancado']).optional(),

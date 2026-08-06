@@ -19,6 +19,26 @@ Health check: `GET http://127.0.0.1:3200/api/health`
 
 Busca geral: `GET /api/busca?q=amigurumi+para+iniciante`
 
+## Tipos de conteúdo
+
+O parâmetro `tipo` aceita um ou mais valores separados por vírgula:
+
+- `artigo`
+- `video`
+- `imagem`
+- `pdf`
+- `grafico`
+
+`grafico` representa fichas, diagramas, esquemas, receitas gráficas, coleções de gráficos e materiais com símbolos/instruções visuais para desenvolver peças de crochê. Quando esse tipo é solicitado, a API expande a consulta com termos especializados como `gráfico de crochê`, `diagrama de crochê`, `receita gráfica` e `crochet chart`, e aplica o filtro em todos os provedores.
+
+```text
+GET /api/busca?q=biquini&tipo=grafico
+GET /api/busca?q=toalha+redonda&tipo=grafico&fonte=pinterest,pdf,web&limit_por_fonte=20
+GET /api/busca?q=square+floral&tipo=grafico,imagem
+```
+
+Um vídeo que ensina a interpretar gráficos continua sendo `video`. Um artigo explicativo continua sendo `artigo`. O tipo `grafico` é reservado ao recurso técnico em si ou a uma coleção claramente dedicada a gráficos.
+
 ## Busca por fonte
 
 O parâmetro `fonte` aceita uma ou mais fontes separadas por vírgula:
@@ -50,7 +70,8 @@ Resultados obtidos pelo SearXNG incluem:
 
 - `origin`: plataforma ou tipo do conteúdo (`instagram`, `tiktok`, `pinterest`, `pdf`, `web`);
 - `provider`: provedor utilizado (`searxng`);
-- `engine`: mecanismo que efetivamente encontrou a página, como `google cse` ou `bing`.
+- `engine`: mecanismo que efetivamente encontrou a página, como `google cse` ou `bing`;
+- `type`: classificação semântica, incluindo o tipo especializado `grafico`.
 
 A presença de uma fonte não garante 20 resultados: Instagram e TikTok dependem da indexação pública disponível nos mecanismos configurados no SearXNG.
 

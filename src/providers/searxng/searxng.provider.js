@@ -38,7 +38,7 @@ function collectMatches(bodies, source) {
 }
 
 export async function searchSearxng({ query, queries, limit, targetResults = limit, safeSearch, signal, source = 'all', categories = 'general', pages = 1 }) {
-  const queryVariants = Array.isArray(queries) && queries.length ? queries : [query];
+  const queryVariants = Array.isArray(queries) && queries.length ? [...new Set(queries)] : [query];
   const primaryQuery = queryVariants[0];
   const pageNumbers = Array.from({ length: Math.max(1, Math.min(pages, 3)) }, (_, index) => index + 1);
   const primary = await settleRequests(pageNumbers.map((page) => ({ query: primaryQuery, safeSearch, categories, page, signal })));
@@ -80,7 +80,7 @@ export async function searchSearxng({ query, queries, limit, targetResults = lim
       return {
         id: `searxng:${Buffer.from(item.url).toString('base64url').slice(0, 24)}`,
         externalId: item.url,
-        type: detectType(item.url, 'artigo'),
+        type: detectType(item.url, 'artigo', { title: item.title, description: item.content, tags: item.category ? [item.category] : [] }),
         origin,
         provider: 'searxng',
         engine: item.engine ?? null,

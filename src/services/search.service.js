@@ -15,16 +15,18 @@ const timeoutSignal = (ms) => AbortSignal.timeout(ms);
 const isProviderFailure = (status) => status === 'error' || status === 'timeout' || status === 'partial';
 const CROCHET_CONFIDENCE_THRESHOLD = 0.5;
 
-function rankAndFilter(items) {
+function rankAndFilter(items, allowedTypes = null) {
   return deduplicateResults(
     items
       .map((item) => ({ ...item, score: calculateScore(item.rankingSignals ?? {}) }))
       .filter((item) => (item.rankingSignals?.crochetConfidence ?? 0) >= CROCHET_CONFIDENCE_THRESHOLD)
+      .filter((item) => !allowedTypes?.length || allowedTypes.includes(item.type))
       .sort((a, b) => b.score - a.score)
   );
 }
 
-function buildCalls(params, query, offset) {
+function buildCalls(params, variants, offset) {
+  const query = variants[0];
   const filters = [
     params.tipo?.length ? `type IN [${params.tipo.map((value) => `"${value}"`).join(',')}]` : null,
     params.idioma ? `language = "${params.idioma}"` : null,
@@ -35,7 +37,15 @@ function buildCalls(params, query, offset) {
     return {
       internal: () => searchInternal({ query, limit: params.limit, offset, signal: timeoutSignal(env.SEARCH_PROVIDER_TIMEOUT_MS) }).then((results) => ({ configured: env.d1Configured, results })),
       youtube: () => searchYouTube({ query, limit: params.limit, signal: timeoutSignal(env.SEARCH_PROVIDER_TIMEOUT_MS) }),
-      searxng: () => searchSearxng({ query, limit: params.limit * 2, safeSearch: params.safe_search, signal: timeoutSignal(env.SEARXNG_TIMEOUT_MS), pages: 2 }),
+      searxng: () => searchSearxng({
+        query,
+        queries: variants,
+        limit: params.limit * 2,
+        targetResults: params.limit,
+        safeSearch: params.safe_search,
+        signal: timeoutSignal(env.SEARXNG_TIMEOUT_MS),
+        pages: 2
+      }),
       meilisearch: () => searchMeilisearch({ query, limit: params.limit, offset, filters, signal: timeoutSignal(env.MEILISEARCH_TIMEOUT_MS) })
     };
   }
@@ -49,10 +59,10 @@ function buildCalls(params, query, offset) {
     if (source === 'youtube') {
       return [source, () => searchYouTube({ query, limit: params.limit_por_fonte, signal: timeoutSignal(env.SEARCH_PROVIDER_TIMEOUT_MS) })];
     }
-    const queries = buildSourceQueries(query, source);
+    const sourceVariants = variants.flatMap((variant) => buildSourceQueries(variant, source));
     return [source, () => searchSearxng({
-      query: queries[0],
-      queries,
+      query: sourceVariants[0],
+      queries: sourceVariants,
       limit: params.limit_por_fonte * 3,
       targetResults: params.limit_por_fonte,
       safeSearch: params.safe_search,
@@ -70,11 +80,11 @@ export async function search(params) {
   if (cached) return { ...cached, cache: { layer: 'memory', hit: true } };
 
   const startedAt = performance.now();
-  const variants = expandQuery(params.q);
-  const query = variants[0];
+  const graphFocused = params.tipo?.includes('grafico');
+  const variants = expandQuery(params.q, graphFocused ? 8 : 5, { types: params.tipo });
   const pageSize = params.fonte?.length ? params.limit_por_fonte : params.limit;
   const offset = (params.page - 1) * pageSize;
-  const calls = buildCalls(params, query, offset);
+  const calls = buildCalls(params, variants, offset);
   const names = Object.keys(calls);
   const settled = await Promise.allSettled(names.map((name) => calls[name]()));
   const providers = {};
@@ -94,7 +104,7 @@ export async function search(params) {
     } else {
       providers[name] = outcome.value.partial ? 'partial' : 'ok';
       providerDetails[name] = outcome.value.diagnostics ?? null;
-      grouped[name] = rankAndFilter(outcome.value.results);
+      grouped[name] = rankAndFilter(outcome.value.results, params.tipo);
     }
   });
 
@@ -104,7 +114,7 @@ export async function search(params) {
     results = params.fonte.flatMap((source) => (grouped[source] ?? []).slice(0, params.limit_por_fonte));
     sourceCounts = Object.fromEntries(params.fonte.map((source) => [source, Math.min((grouped[source] ?? []).length, params.limit_por_fonte)]));
   } else {
-    const combined = rankAndFilter(Object.values(grouped).flat());
+    const combined = rankAndFilter(Object.values(grouped).flat(), params.tipo);
     results = combined.slice(0, params.limit);
     sourceCounts = results.reduce((counts, item) => ({ ...counts, [item.origin]: (counts[item.origin] ?? 0) + 1 }), {});
   }
@@ -112,6 +122,7 @@ export async function search(params) {
   const payload = {
     query: params.q,
     expandedQueries: variants,
+    requestedTypes: params.tipo ?? null,
     requestedSources: params.fonte ?? null,
     total: results.length,
     page: params.page,
