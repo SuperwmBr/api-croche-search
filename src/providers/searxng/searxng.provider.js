@@ -40,7 +40,12 @@ function collectMatches(bodies, source) {
 export async function searchSearxng({ query, queries, limit, targetResults = limit, safeSearch, signal, source = 'all', categories = 'general', pages = 1 }) {
   const queryVariants = Array.isArray(queries) && queries.length ? [...new Set(queries)] : [query];
   const primaryQuery = queryVariants[0];
-  const pageNumbers = Array.from({ length: Math.max(1, Math.min(pages, 3)) }, (_, index) => index + 1);
+  // SearXNG costuma entregar cerca de 10 resultados por página. Quando o cliente
+  // pede mais que o padrão, aumentamos as páginas primárias de forma controlada,
+  // com teto de 5 para evitar explosão de requisições.
+  const pagesNeeded = Math.ceil(Math.max(1, targetResults) / 10);
+  const requestedPages = Math.max(pages, pagesNeeded);
+  const pageNumbers = Array.from({ length: Math.max(1, Math.min(requestedPages, 5)) }, (_, index) => index + 1);
   const primary = await settleRequests(pageNumbers.map((page) => ({ query: primaryQuery, safeSearch, categories, page, signal })));
   const allBodies = [...primary.bodies];
   const allFailures = [...primary.failures];
