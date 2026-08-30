@@ -9,6 +9,7 @@ const schema = z.object({
   PUBLIC_BASE_URL: z.string().url().optional().transform(emptyToUndefined),
   CORS_ORIGINS: z.string().default('https://tutoriaiscroche.com.br,https://www.tutoriaiscroche.com.br'),
   ADMIN_API_KEY: z.string().min(24).optional().transform(emptyToUndefined),
+  INTERNAL_API_KEY: z.string().min(24).optional().transform(emptyToUndefined),
   CLOUDFLARE_ACCOUNT_ID: z.string().optional().transform(emptyToUndefined),
   CLOUDFLARE_D1_DATABASE_ID: z.string().uuid().optional().transform(emptyToUndefined),
   CLOUDFLARE_API_TOKEN: z.string().optional().transform(emptyToUndefined),
