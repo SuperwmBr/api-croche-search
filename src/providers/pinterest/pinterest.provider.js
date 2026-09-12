@@ -51,14 +51,15 @@ function toResult(pin, page, index) {
   };
 }
 
-export async function searchPinterest({ query, limit = 20, bookmark = null, allPages = true, signal }) {
+export async function searchPinterest({ query, limit = 20, bookmark = null, allPages = true, maxPages, signal }) {
   const results = [];
   const bookmarks = new Set();
   let currentBookmark = bookmark || null;
   let pagesCompleted = 0;
   let hasMore = true;
+  const pageLimit = Math.max(1, maxPages || env.pinterestMaxPages);
 
-  while (hasMore && pagesCompleted < Math.max(1, env.pinterestMaxPages)) {
+  while (hasMore && pagesCompleted < pageLimit) {
     const sourceUrl = `/search/pins/?q=${encodeURIComponent(query)}&rs=typed`;
     const data = {
       options: {
@@ -96,7 +97,7 @@ export async function searchPinterest({ query, limit = 20, bookmark = null, allP
     diagnostics: {
       pagesRequested: pagesCompleted,
       pagesCompleted,
-      maxPages: env.pinterestMaxPages,
+      maxPages: pageLimit,
       allPages,
       hasMore,
       rawResults: results.length

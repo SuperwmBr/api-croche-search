@@ -40,6 +40,8 @@ Para o ValueSerp, `todas_paginas=1` é o padrão. A API continua avançando enqu
 
 O scraping do Pinterest usa `bookmark` para percorrer as páginas disponíveis e extrai a imagem original do pin (`images.orig.url`) quando fornecida.
 
+Quando `provedor=valueserp` ou `provedor=scraping` é usado com `todas_paginas=1`, `limit` define o tamanho solicitado por página, mas não limita a resposta final: todos os resultados coletados e deduplicados são retornados e persistidos. `max_paginas` limita o número de páginas processadas.
+
 ## Persistência e idempotência
 
 Resultados externos são persistidos no Cloudflare D1 em `SEARCH_RESULTS`. A URL é normalizada e protegida pela chave única `canonical_url`. O registro complementar `SEARCH_URLS` mantém uma única linha por URL canônica e atualiza metadados sem criar duplicatas.

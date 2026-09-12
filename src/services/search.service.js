@@ -45,6 +45,7 @@ function buildPinterestCall(params, query) {
     query,
     limit: params.limit,
     allPages: params.todas_paginas,
+    maxPages: params.max_paginas,
     signal: timeoutSignal(env.pinterestTotalTimeoutMs)
   });
 }
@@ -137,6 +138,7 @@ export async function search(params) {
 
   const allFetched = rankAndFilter(Object.values(grouped).flat(), params.tipo);
   const provider = params.provedor !== 'auto' ? params.provedor : params.provider || 'auto';
+  const returnAllFetched = params.todas_paginas && ['scraping', 'valueserp'].includes(provider);
   let results;
   let sourceCounts;
   if (params.fonte?.length && provider === 'auto') {
@@ -144,10 +146,10 @@ export async function search(params) {
     sourceCounts = Object.fromEntries(params.fonte.map((source) => [source, Math.min((grouped[source] ?? []).length, params.limit_por_fonte)]));
   } else if (params.fonte?.length) {
     const selected = allFetched.filter((item) => sourceSelected(item, params.fonte));
-    results = selected.slice(0, params.limit_por_fonte * params.fonte.length);
+    results = returnAllFetched ? selected : selected.slice(0, params.limit_por_fonte * params.fonte.length);
     sourceCounts = Object.fromEntries(params.fonte.map((source) => [source, results.filter((item) => item.origin === source).length]));
   } else {
-    results = allFetched.slice(0, params.limit);
+    results = returnAllFetched ? allFetched : allFetched.slice(0, params.limit);
     sourceCounts = results.reduce((counts, item) => ({ ...counts, [item.origin]: (counts[item.origin] ?? 0) + 1 }), {});
   }
 
@@ -171,7 +173,8 @@ export async function search(params) {
     totalFetched: allFetched.length,
     page: params.page,
     limit: pageSize,
-    limitMode: params.fonte?.length ? 'per_source' : 'total',
+    limitMode: returnAllFetched ? 'all_pages' : params.fonte?.length ? 'per_source' : 'total',
+    allPages: returnAllFetched,
     partial: Object.values(providers).some(isProviderFailure) || Boolean(persistence.error),
     providers,
     providerDetails,
