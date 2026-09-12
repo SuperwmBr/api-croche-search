@@ -40,14 +40,13 @@ Para o ValueSerp, `todas_paginas=1` é o padrão. A API continua avançando enqu
 
 O scraping do Pinterest usa `bookmark` para percorrer as páginas disponíveis e extrai a imagem original do pin (`images.orig.url`) quando fornecida.
 
-Quando `provedor=valueserp` ou `provedor=scraping` é usado com `todas_paginas=1`, `limit` define o tamanho solicitado por página, mas não limita a resposta final: todos os resultados coletados no lote são retornados e persistidos. Para o scraping do Pinterest, a API limita cada requisição HTTP a `PINTEREST_BATCH_MAX_PAGES` páginas (3 por padrão), evitando 504 do proxy. Se `collectionComplete` for `false`, use o `nextBookmark` retornado na próxima chamada:
+Quando `provedor=valueserp` ou `provedor=scraping` é usado com `todas_paginas=1`, `limit` define o tamanho solicitado por página. No Pinterest, a API limita cada lote a `PINTEREST_BATCH_MAX_PAGES` páginas (3 por padrão), grava o bookmark internamente e continua a coleta em segundo plano, evitando que o cliente precise conhecer ou enviar qualquer cursor do Pinterest.
 
 ```text
 GET /api/busca?q=grafico+de+croche&provedor=scraping&todas_paginas=1&limit=100
-GET /api/busca?q=grafico+de+croche&provedor=scraping&todas_paginas=1&limit=100&pinterest_bookmark=<nextBookmark>
 ```
 
-O `nextBookmark` deve ser codificado como parâmetro de URL. Repita até `collectionComplete=true` ou `nextBookmark=null`. `lote_paginas` permite reduzir o lote (até o limite configurado no servidor). `max_paginas` continua aceito, mas nunca ultrapassa esse limite seguro por requisição. Cada lote é persistido imediatamente e a unicidade no D1 impede duplicações.
+A resposta contém `crawl.id` e `crawl.statusUrl`. Consulte esse endereço até `crawl.collectionComplete=true` para acompanhar a coleta e ler os resultados já persistidos. `lote_paginas` permite reduzir o lote e `max_paginas` limita o total da coleta. Cada lote é persistido imediatamente e a unicidade no D1 impede duplicações.
 
 ## Persistência e idempotência
 

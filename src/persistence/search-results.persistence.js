@@ -90,9 +90,9 @@ async function insertResults(items, signal) {
 
 export async function persistSearchResults(results, { signal } = {}) {
   const items = rows(results);
-  if (!items.length) return { configured: true, persisted: 0, duplicates: 0 };
+  if (!items.length) return { configured: true, persisted: 0, duplicates: 0, canonicalUrls: [] };
   await ensureUrlsSchema(signal);
   await insertUrlRegistry(items, signal);
   const inserted = await insertResults(items, signal);
-  return { configured: true, persisted: inserted, duplicates: Math.max(0, results.length - inserted) };
+  return { configured: true, persisted: inserted, duplicates: Math.max(0, results.length - inserted), canonicalUrls: items.map((item) => item.canonicalUrl) };
 }

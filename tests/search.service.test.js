@@ -46,7 +46,7 @@ test('provedor scraping retorna todos os resultados quando todas_paginas está a
     assert.equal(output.totalFetched, 2);
     assert.equal(output.results.length, 2);
     assert.equal(output.collectionComplete, true);
-    assert.equal(output.nextBookmark, null);
+    assert.equal('nextBookmark' in output, false);
   } finally {
     globalThis.fetch = originalFetch;
     env.d1Configured = originalD1Configured;

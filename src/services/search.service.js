@@ -10,6 +10,8 @@ import { searchMeilisearch } from '../providers/meilisearch/meilisearch.provider
 import { searchValueSerp } from '../providers/valueserp/valueserp.provider.js';
 import { searchPinterest } from '../providers/pinterest/pinterest.provider.js';
 import { persistSearchResults } from '../persistence/search-results.persistence.js';
+import { getPinterestCrawlResults, preparePinterestCrawl, claimPinterestCrawl, savePinterestCrawlBatch, failPinterestCrawl } from '../persistence/pinterest-crawl.persistence.js';
+import { enqueuePinterestCrawl } from './pinterest-crawl.service.js';
 import { buildSourceQueries, categoriesForSource } from '../classification/source.js';
 import { env } from '../config/env.js';
 
@@ -40,13 +42,13 @@ function buildValueSerpCall(params, query) {
   });
 }
 
-function buildPinterestCall(params, query) {
+function buildPinterestCall(params, query, crawlContext) {
   const batchLimit = Math.min(params.lote_paginas || env.pinterestBatchMaxPages, env.pinterestBatchMaxPages);
   const maxPages = Math.min(params.max_paginas || batchLimit, batchLimit);
   return () => searchPinterest({
     query,
     limit: params.limit,
-    bookmark: params.pinterest_bookmark,
+    bookmark: crawlContext?.job.nextBookmark || null,
     allPages: params.todas_paginas,
     maxPages,
     signal: timeoutSignal(env.pinterestTotalTimeoutMs)
@@ -68,7 +70,7 @@ function buildSearxngCall(params, query, variants, source = 'all') {
   });
 }
 
-function buildCalls(params, variants, offset) {
+function buildCalls(params, variants, offset, crawlContext = null) {
   const query = variants[0];
   const provider = params.provedor !== 'auto' ? params.provedor : params.provider || 'auto';
   const filters = [
@@ -78,7 +80,7 @@ function buildCalls(params, variants, offset) {
   ].filter(Boolean);
 
   if (provider === 'valueserp') return { valueserp: buildValueSerpCall(params, query) };
-  if (provider === 'scraping') return { scraping: buildPinterestCall(params, query) };
+  if (provider === 'scraping') return { scraping: buildPinterestCall(params, query, crawlContext) };
 
   if (!params.fonte?.length) {
     if (provider === 'searxng') return { searxng: buildSearxngCall(params, query, variants) };
@@ -105,6 +107,46 @@ function sourceSelected(item, sources) {
   return sources.includes(item.origin) || (sources.includes('web') && item.origin === 'web');
 }
 
+function crawlSummary(job) {
+  if (!job) return null;
+  return {
+    id: job.id,
+    status: job.status,
+    collectionComplete: job.status === 'complete',
+    pagesCompleted: job.pagesCompleted,
+    resultsCollected: job.resultsCount,
+    statusUrl: `/api/busca/crawls/${job.id}`,
+    error: job.error
+  };
+}
+
+function storedCrawlPayload(params, variants, job, results, startedAt) {
+  const ranked = rankAndFilter(results, params.tipo);
+  return {
+    query: params.q,
+    expandedQueries: variants,
+    requestedTypes: params.tipo ?? null,
+    requestedSources: params.fonte ?? null,
+    requestedProvider: 'scraping',
+    total: ranked.length,
+    totalFetched: job.resultsCount,
+    page: 1,
+    limit: params.limit,
+    limitMode: 'all_pages',
+    allPages: true,
+    collectionComplete: job.status === 'complete',
+    partial: job.status !== 'complete',
+    providers: { scraping: job.status === 'complete' ? 'ok' : 'partial' },
+    providerDetails: { scraping: { pagesCompleted: job.pagesCompleted, rawResults: job.resultsCount } },
+    sourceCounts: { pinterest: ranked.length },
+    persistence: { configured: true, persisted: 0, duplicates: 0 },
+    crawl: crawlSummary(job),
+    elapsedMs: Math.round(performance.now() - startedAt),
+    results: ranked,
+    cache: { layer: null, hit: false }
+  };
+}
+
 export async function search(params) {
   const key = cacheKey(params);
   const cached = memoryCache.get(key);
@@ -115,7 +157,22 @@ export async function search(params) {
   const variants = expandQuery(params.q, graphFocused ? 8 : 5, { types: params.tipo });
   const pageSize = params.fonte?.length ? params.limit_por_fonte : params.limit;
   const offset = (params.page - 1) * pageSize;
-  const calls = buildCalls(params, variants, offset);
+  const provider = params.provedor !== 'auto' ? params.provedor : params.provider || 'auto';
+  const batchLimit = Math.min(params.lote_paginas || env.pinterestBatchMaxPages, env.pinterestBatchMaxPages);
+  let crawlContext = null;
+  let claimedCrawl = null;
+  if (provider === 'scraping' && params.todas_paginas && env.d1Configured) {
+    crawlContext = await preparePinterestCrawl({ query: variants[0], limit: params.limit, batchPages: batchLimit, maxPages: params.max_paginas });
+    claimedCrawl = await claimPinterestCrawl(crawlContext.job.id);
+    if (!claimedCrawl?.claimed) {
+      const stored = await getPinterestCrawlResults(crawlContext.job.id, { limit: params.limit, offset: 0 });
+      const payload = storedCrawlPayload(params, variants, claimedCrawl?.job || crawlContext.job, stored, startedAt);
+      if (payload.collectionComplete) memoryCache.set(key, payload);
+      return payload;
+    }
+    crawlContext = claimedCrawl;
+  }
+  const calls = buildCalls(params, variants, offset, crawlContext);
   const names = Object.keys(calls);
   const settled = await Promise.allSettled(names.map((name) => calls[name]()));
   const providers = {};
@@ -140,7 +197,6 @@ export async function search(params) {
   });
 
   const allFetched = rankAndFilter(Object.values(grouped).flat(), params.tipo);
-  const provider = params.provedor !== 'auto' ? params.provedor : params.provider || 'auto';
   const returnAllFetched = params.todas_paginas && ['scraping', 'valueserp'].includes(provider);
   const selectedProviderDetails = providerDetails[provider] || {};
   const providerFailed = Object.values(providers).some(isProviderFailure);
@@ -158,7 +214,7 @@ export async function search(params) {
     sourceCounts = results.reduce((counts, item) => ({ ...counts, [item.origin]: (counts[item.origin] ?? 0) + 1 }), {});
   }
 
-  let persistence = { configured: env.d1Configured, persisted: 0, duplicates: 0 };
+  let persistence = { configured: env.d1Configured, persisted: 0, duplicates: 0, canonicalUrls: [] };
   if (env.d1Configured && allFetched.length) {
     try {
       persistence = await persistSearchResults(allFetched, { signal: timeoutSignal(env.SEARCH_PROVIDER_TIMEOUT_MS) });
@@ -167,6 +223,30 @@ export async function search(params) {
       console.error('[search-persistence]', error?.message || error);
     }
   }
+
+  let crawlJob = crawlContext?.job || null;
+  if (crawlContext?.claimed) {
+    if (providers.scraping === 'error' || providers.scraping === 'timeout') {
+      crawlJob = await failPinterestCrawl(crawlContext.job.id, providerDetails.scraping?.error || 'pinterest_batch_failed').catch(() => crawlContext.job);
+    } else if (persistence.error) {
+      crawlJob = await failPinterestCrawl(crawlContext.job.id, persistence.error).catch(() => crawlContext.job);
+    } else {
+      crawlJob = await savePinterestCrawlBatch(crawlContext.job.id, {
+        nextBookmark: providerDetails.scraping?.nextBookmark,
+        hasMore: providerDetails.scraping?.hasMore,
+        pagesCompleted: providerDetails.scraping?.pagesCompleted,
+        persisted: persistence.persisted,
+        canonicalUrls: persistence.canonicalUrls
+      }).catch(() => crawlContext.job);
+      if (crawlJob?.status === 'queued') enqueuePinterestCrawl();
+    }
+  }
+  const { canonicalUrls: _canonicalUrls, ...publicPersistence } = persistence;
+  const publicProviderDetails = Object.fromEntries(Object.entries(providerDetails).map(([name, details]) => {
+    if (name !== 'scraping' || !details) return [name, details];
+    const { nextBookmark: _nextBookmark, ...safeDetails } = details;
+    return [name, safeDetails];
+  }));
 
   const payload = {
     query: params.q,
@@ -180,18 +260,18 @@ export async function search(params) {
     limit: pageSize,
     limitMode: returnAllFetched ? 'all_pages' : params.fonte?.length ? 'per_source' : 'total',
     allPages: returnAllFetched,
-    collectionComplete: !providerFailed && !selectedProviderDetails.hasMore,
-    nextBookmark: providerDetails.scraping?.nextBookmark ?? null,
+    collectionComplete: crawlJob ? crawlJob.status === 'complete' : !providerFailed && !selectedProviderDetails.hasMore,
     partial: providerFailed || Boolean(persistence.error),
     providers,
-    providerDetails,
+    providerDetails: publicProviderDetails,
     sourceCounts,
-    persistence,
+    persistence: publicPersistence,
+    crawl: crawlSummary(crawlJob),
     elapsedMs: Math.round(performance.now() - startedAt),
     results,
     cache: { layer: null, hit: false }
   };
 
-  memoryCache.set(key, payload);
+  if (!crawlJob || crawlJob.status === 'complete') memoryCache.set(key, payload);
   return payload;
 }

@@ -57,6 +57,7 @@ export async function searchPinterest({ query, limit = 20, bookmark = null, allP
   let currentBookmark = bookmark || null;
   let pagesCompleted = 0;
   let hasMore = true;
+  let pageError = null;
   const pageLimit = Math.max(1, maxPages || env.pinterestMaxPages);
 
   while (hasMore && pagesCompleted < pageLimit) {
@@ -70,12 +71,21 @@ export async function searchPinterest({ query, limit = 20, bookmark = null, allP
       context: {}
     };
     const url = `${env.pinterestBaseUrl}/resource/BaseSearchResource/get/?source_url=${encodeURIComponent(sourceUrl)}&data=${encodeURIComponent(JSON.stringify(data))}`;
-    const response = await fetch(url, {
-      headers: { Accept: 'application/json', 'x-pinterest-pws-handler': 'www/ideas/[interest]/[id].js' },
-      signal: requestSignal(signal)
-    });
-    const body = await response.json().catch(() => null);
-    if (!response.ok || !body) throw new Error(`Pinterest scraping failed (${response.status})`);
+    let response;
+    let body;
+    try {
+      response = await fetch(url, {
+        headers: { Accept: 'application/json', 'x-pinterest-pws-handler': 'www/ideas/[interest]/[id].js' },
+        signal: requestSignal(signal)
+      });
+      body = await response.json().catch(() => null);
+      if (!response.ok || !body) throw new Error(`Pinterest scraping failed (${response.status})`);
+    } catch (error) {
+      if (pagesCompleted === 0) throw error;
+      pageError = error?.message || 'pinterest_page_failed';
+      hasMore = true;
+      break;
+    }
 
     const resource = body.resource_response || body.resource || {};
     const items = resource.data?.results || body.data?.results || [];
@@ -92,7 +102,7 @@ export async function searchPinterest({ query, limit = 20, bookmark = null, allP
 
   return {
     configured: true,
-    partial: hasMore,
+    partial: hasMore || Boolean(pageError),
     results,
     diagnostics: {
       pagesRequested: pagesCompleted,
@@ -101,6 +111,7 @@ export async function searchPinterest({ query, limit = 20, bookmark = null, allP
       allPages,
       hasMore,
       nextBookmark: hasMore ? currentBookmark : null,
+      error: pageError,
       rawResults: results.length
     }
   };

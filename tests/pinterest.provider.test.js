@@ -52,3 +52,30 @@ test('scraping do Pinterest devolve bookmark quando o lote termina com mais pág
     globalThis.fetch = originalFetch;
   }
 });
+
+test('scraping do Pinterest preserva o lote quando uma página posterior falha', async () => {
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls += 1;
+    if (calls === 1) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ resource_response: { data: { results: [{ id: 'ok', title: 'Crochê', link: 'https://www.pinterest.com/pin/ok/' }] }, bookmark: 'retry-page' } })
+      };
+    }
+    return { ok: false, status: 503, json: async () => ({}) };
+  };
+
+  try {
+    const output = await searchPinterest({ query: 'crochê', allPages: true, maxPages: 2, signal: AbortSignal.timeout(1000) });
+    assert.equal(calls, 2);
+    assert.equal(output.results.length, 1);
+    assert.equal(output.partial, true);
+    assert.equal(output.diagnostics.nextBookmark, 'retry-page');
+    assert.equal(output.diagnostics.error, 'Pinterest scraping failed (503)');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
