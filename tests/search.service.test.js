@@ -1,10 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { env } from '../src/config/env.js';
 import { search } from '../src/services/search.service.js';
 
 test('provedor scraping retorna todos os resultados quando todas_paginas está ativo', async () => {
   const originalFetch = globalThis.fetch;
+  const originalD1Configured = env.d1Configured;
   let calls = 0;
+  env.d1Configured = false;
   globalThis.fetch = async () => {
     calls += 1;
     const body = calls === 1
@@ -44,5 +47,6 @@ test('provedor scraping retorna todos os resultados quando todas_paginas está a
     assert.equal(output.results.length, 2);
   } finally {
     globalThis.fetch = originalFetch;
+    env.d1Configured = originalD1Configured;
   }
 });
