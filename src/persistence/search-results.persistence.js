@@ -3,6 +3,11 @@ import { queryD1 } from '../providers/d1/d1.client.js';
 import { canonicalizeUrl, normalizeText } from '../normalization/text.js';
 
 let urlsSchemaReady = false;
+const D1_MAX_BOUND_PARAMETERS = 100;
+const URL_REGISTRY_PARAMETERS_PER_ROW = 5;
+const SEARCH_RESULT_PARAMETERS_PER_ROW = 15;
+const URL_REGISTRY_BATCH_SIZE = Math.floor(D1_MAX_BOUND_PARAMETERS / URL_REGISTRY_PARAMETERS_PER_ROW);
+const SEARCH_RESULT_BATCH_SIZE = Math.floor(D1_MAX_BOUND_PARAMETERS / SEARCH_RESULT_PARAMETERS_PER_ROW);
 
 async function ensureUrlsSchema(signal) {
   if (urlsSchemaReady) return;
@@ -50,8 +55,8 @@ function rows(results) {
 }
 
 async function insertUrlRegistry(items, signal) {
-  for (let start = 0; start < items.length; start += 40) {
-    const batch = items.slice(start, start + 40);
+  for (let start = 0; start < items.length; start += URL_REGISTRY_BATCH_SIZE) {
+    const batch = items.slice(start, start + URL_REGISTRY_BATCH_SIZE);
     const values = batch.map(() => "(?,?,?,?,?,datetime('now'),datetime('now'))").join(',');
     const params = batch.flatMap((item) => [item.canonicalUrl, item.url, item.imageUrl, item.provider, item.source]);
     await queryD1(`INSERT INTO SEARCH_URLS (canonical_url,original_url,image_url,provider,source,first_seen_at,last_seen_at)
@@ -67,8 +72,8 @@ async function insertUrlRegistry(items, signal) {
 
 async function insertResults(items, signal) {
   let inserted = 0;
-  for (let start = 0; start < items.length; start += 25) {
-    const batch = items.slice(start, start + 25);
+  for (let start = 0; start < items.length; start += SEARCH_RESULT_BATCH_SIZE) {
+    const batch = items.slice(start, start + SEARCH_RESULT_BATCH_SIZE);
     const values = batch.map(() => "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'active',datetime('now'),datetime('now'))").join(',');
     const params = batch.flatMap((item) => [
       item.externalId, item.type, item.source, item.title, item.description, item.url,
