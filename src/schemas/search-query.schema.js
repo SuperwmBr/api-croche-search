@@ -10,6 +10,7 @@ const sources = csv.refine((values) => values.every((value) => SUPPORTED_SOURCES
 const types = csv.refine((values) => values.every((value) => SUPPORTED_TYPES.includes(value)), {
   message: `tipos permitidos: ${SUPPORTED_TYPES.join(', ')}`
 });
+const provider = z.enum(['auto', 'searxng', 'valueserp', 'scraping']).default('auto');
 
 export const searchQuerySchema = z.object({
   q: z.string().trim().min(2).max(env.SEARCH_MAX_QUERY_LENGTH),
@@ -26,5 +27,10 @@ export const searchQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(20),
   limit_por_fonte: z.coerce.number().int().min(1).max(50).default(20),
   sort: z.enum(['relevancia', 'recente', 'popular']).default('relevancia'),
-  safe_search: z.enum(['0', '1', '2']).default('1')
+  safe_search: z.enum(['0', '1', '2']).default('1'),
+  provedor: provider,
+  provider: provider.optional(),
+  todas_paginas: z.enum(['0', '1']).transform((value) => value === '1').default(true),
+  valueserp_tipo: z.enum(['images', 'search', 'news', 'shopping']).optional(),
+  max_paginas: z.coerce.number().int().min(1).max(100).optional()
 });

@@ -19,6 +19,33 @@ Health check: `GET http://127.0.0.1:3200/api/health`
 
 Busca geral: `GET /api/busca?q=amigurumi+para+iniciante`
 
+## Provedores de descoberta
+
+O parâmetro `provedor` (ou `provider`) permite escolher o mecanismo usado:
+
+- `auto`: comportamento padrão, combinando D1, YouTube, SearXNG e Meilisearch quando configurado;
+- `searxng`: busca pública pelo SearXNG;
+- `valueserp`: busca pela ValueSerp, com `search_type=images` por padrão;
+- `scraping`: leitura direta de resultados do Pinterest pelo fluxo de `BaseSearchResource`, inspirado no projeto `crochet-chart-scraping`.
+
+Exemplos:
+
+```text
+GET /api/busca?q=icroche+grafico+de+croche&provedor=valueserp&fonte=web&todas_paginas=1
+GET /api/busca?q=grafico+de+croche&provedor=scraping&fonte=pinterest&todas_paginas=1
+GET /api/busca?q=flor+de+croche&provedor=valueserp&valueserp_tipo=images&max_paginas=100
+```
+
+Para o ValueSerp, `todas_paginas=1` é o padrão. A API continua avançando enquanto houver resultados/paginação disponível, interrompendo quando não houver novos resultados ou quando atingir `max_paginas`/`VALUESERP_MAX_PAGES`. A chave deve ficar somente no ambiente do servidor, em `VALUESERP_API_KEY`.
+
+O scraping do Pinterest usa `bookmark` para percorrer as páginas disponíveis e extrai a imagem original do pin (`images.orig.url`) quando fornecida.
+
+## Persistência e idempotência
+
+Resultados externos são persistidos no Cloudflare D1 em `SEARCH_RESULTS`. A URL é normalizada e protegida pela chave única `canonical_url`. O registro complementar `SEARCH_URLS` mantém uma única linha por URL canônica e atualiza metadados sem criar duplicatas.
+
+O campo `persistence` da resposta informa o estado da persistência. A migração adicional está em `migrations/0002_search_url_registry.sql`.
+
 ## Tipos de conteúdo
 
 O parâmetro `tipo` aceita um ou mais valores separados por vírgula:
