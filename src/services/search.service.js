@@ -41,11 +41,14 @@ function buildValueSerpCall(params, query) {
 }
 
 function buildPinterestCall(params, query) {
+  const batchLimit = Math.min(params.lote_paginas || env.pinterestBatchMaxPages, env.pinterestBatchMaxPages);
+  const maxPages = Math.min(params.max_paginas || batchLimit, batchLimit);
   return () => searchPinterest({
     query,
     limit: params.limit,
+    bookmark: params.pinterest_bookmark,
     allPages: params.todas_paginas,
-    maxPages: params.max_paginas,
+    maxPages,
     signal: timeoutSignal(env.pinterestTotalTimeoutMs)
   });
 }
@@ -139,6 +142,8 @@ export async function search(params) {
   const allFetched = rankAndFilter(Object.values(grouped).flat(), params.tipo);
   const provider = params.provedor !== 'auto' ? params.provedor : params.provider || 'auto';
   const returnAllFetched = params.todas_paginas && ['scraping', 'valueserp'].includes(provider);
+  const selectedProviderDetails = providerDetails[provider] || {};
+  const providerFailed = Object.values(providers).some(isProviderFailure);
   let results;
   let sourceCounts;
   if (params.fonte?.length && provider === 'auto') {
@@ -175,7 +180,9 @@ export async function search(params) {
     limit: pageSize,
     limitMode: returnAllFetched ? 'all_pages' : params.fonte?.length ? 'per_source' : 'total',
     allPages: returnAllFetched,
-    partial: Object.values(providers).some(isProviderFailure) || Boolean(persistence.error),
+    collectionComplete: !providerFailed && !selectedProviderDetails.hasMore,
+    nextBookmark: providerDetails.scraping?.nextBookmark ?? null,
+    partial: providerFailed || Boolean(persistence.error),
     providers,
     providerDetails,
     sourceCounts,

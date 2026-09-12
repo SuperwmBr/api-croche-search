@@ -36,6 +36,7 @@ const schema = z.object({
   VALUESERP_TOTAL_TIMEOUT_MS: z.coerce.number().int().positive().default(120000),
   PINTEREST_BASE_URL: z.string().url().default('https://www.pinterest.com'),
   PINTEREST_MAX_PAGES: z.coerce.number().int().positive().max(100).default(100),
+  PINTEREST_BATCH_MAX_PAGES: z.coerce.number().int().positive().max(10).default(3),
   PINTEREST_TIMEOUT_MS: z.coerce.number().int().positive().default(15000),
   PINTEREST_TOTAL_TIMEOUT_MS: z.coerce.number().int().positive().default(120000),
   SEARCH_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60000),
@@ -67,6 +68,7 @@ export const env = {
   valueserpTotalTimeoutMs: parsed.data.VALUESERP_TOTAL_TIMEOUT_MS,
   pinterestBaseUrl: parsed.data.PINTEREST_BASE_URL,
   pinterestMaxPages: parsed.data.PINTEREST_MAX_PAGES,
+  pinterestBatchMaxPages: parsed.data.PINTEREST_BATCH_MAX_PAGES,
   pinterestTimeoutMs: parsed.data.PINTEREST_TIMEOUT_MS,
   pinterestTotalTimeoutMs: parsed.data.PINTEREST_TOTAL_TIMEOUT_MS
 };

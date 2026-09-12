@@ -100,6 +100,7 @@ export async function searchPinterest({ query, limit = 20, bookmark = null, allP
       maxPages: pageLimit,
       allPages,
       hasMore,
+      nextBookmark: hasMore ? currentBookmark : null,
       rawResults: results.length
     }
   };

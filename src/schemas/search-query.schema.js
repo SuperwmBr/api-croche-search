@@ -32,5 +32,7 @@ export const searchQuerySchema = z.object({
   provider: provider.optional(),
   todas_paginas: z.enum(['0', '1']).transform((value) => value === '1').default(true),
   valueserp_tipo: z.enum(['images', 'search', 'news', 'shopping']).optional(),
-  max_paginas: z.coerce.number().int().min(1).max(100).optional()
+  max_paginas: z.coerce.number().int().min(1).max(100).optional(),
+  lote_paginas: z.coerce.number().int().min(1).max(10).optional(),
+  pinterest_bookmark: z.string().trim().min(1).max(4096).optional()
 });
