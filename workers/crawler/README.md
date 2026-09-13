@@ -21,18 +21,19 @@ esperando resposta — o trabalho pode demorar o quanto precisar.
 
 ## Isolamento de propósito
 
-Este worker é **totalmente autocontido** dentro de `workers/crawler/`. Nada
-fora desta pasta foi alterado. Toda a lógica que ele precisa (dedupe, rank,
-normalização de URL/texto, providers de Pinterest e ValueSerp, persistência)
-foi **portada/duplicada** aqui a partir do código já existente em
-`../../src/`, não importada de lá. Isso foi uma escolha deliberada — trade-off:
+Este worker é **totalmente autocontido num único arquivo**, `worker.js`.
+Nada fora de `workers/crawler/` foi alterado. Toda a lógica que ele precisa
+(dedupe, rank, normalização de URL/texto, providers de Pinterest e ValueSerp,
+persistência) foi **portada/duplicada** para dentro desse arquivo a partir do
+código já existente em `../../src/`, não importada de lá. Isso foi uma
+escolha deliberada — trade-off:
 
 - **Vantagem**: zero risco de quebrar a API; deploy do worker é 100%
-  independente.
+  independente; um único arquivo é tudo que o Cloudflare Worker precisa.
 - **Risco a monitorar**: lógica duplicada pode divergir com o tempo. Se você
   corrigir um bug de dedupe/rank/persistência na API (`src/`), replique aqui
-  também. Os arquivos citam explicitamente de qual arquivo da API foram
-  portados, pra facilitar comparar.
+  também. Cada seção de `worker.js` tem um comentário indicando de qual
+  arquivo da API foi portada, pra facilitar comparar.
 
 ## De onde vêm as queries que o cron mantém atualizadas
 
