@@ -38,7 +38,7 @@ GET /api/busca?q=flor+de+croche&provedor=valueserp&valueserp_tipo=images&max_pag
 GET /api/busca?q=grafico+de+croche&provedor=mix&todas_paginas=1&limit=50
 ```
 
-Para o ValueSerp, `todas_paginas=1` é o padrão. A API continua avançando enquanto houver resultados/paginação disponível, interrompendo quando não houver novos resultados ou quando atingir `max_paginas`/`VALUESERP_MAX_PAGES`. A chave deve ficar somente no ambiente do servidor, em `VALUESERP_API_KEY`.
+Para o ValueSerp, `todas_paginas=1` é o padrão. **Se `max_paginas` não for informado, a API usa `VALUESERP_SYNC_DEFAULT_MAX_PAGES` (5 por padrão) em vez de `VALUESERP_MAX_PAGES` (100)** — isso evita que uma chamada síncrona (via `provedor=valueserp` ou `provedor=mix`) percorra 100 páginas sequenciais na mesma requisição HTTP e estoure o gateway timeout do Cloudflare (504) bem antes do timeout interno (`VALUESERP_TOTAL_TIMEOUT_MS`, 120s por padrão). Para buscar mais páginas, informe `max_paginas` explicitamente (até 100) — nesse caso a requisição pode demorar bastante e é sua responsabilidade garantir que o proxy na frente aguente esse tempo. A chave deve ficar somente no ambiente do servidor, em `VALUESERP_API_KEY`.
 
 O scraping do Pinterest usa `bookmark` para percorrer as páginas disponíveis e extrai a imagem original do pin (`images.orig.url`) quando fornecida.
 

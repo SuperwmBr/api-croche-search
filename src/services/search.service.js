@@ -36,7 +36,7 @@ function buildValueSerpCall(params, query) {
     limit: params.limit,
     page: params.todas_paginas ? 1 : params.page,
     allPages: params.todas_paginas,
-    maxPages: params.max_paginas,
+    maxPages: params.max_paginas || env.valueserpSyncDefaultMaxPages,
     searchType: params.valueserp_tipo || 'images',
     signal: timeoutSignal(env.valueserpTotalTimeoutMs)
   });
