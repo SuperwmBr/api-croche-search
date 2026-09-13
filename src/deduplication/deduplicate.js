@@ -3,11 +3,13 @@ import { canonicalizeUrl, normalizeText } from '../normalization/text.js';
 export function deduplicateResults(results) {
   const seen = new Map();
   for (const result of results) {
-    const keys = [
-      result.externalId && `${result.origin}:${result.externalId}`,
-      result.url && canonicalizeUrl(result.url),
-      result.title && `${new URL(result.url).hostname}:${normalizeText(result.title)}`
-    ].filter(Boolean);
+    const identityKey = result.externalId ? `${result.origin}:${result.externalId}` : null;
+    const keys = identityKey
+      ? [identityKey]
+      : [
+          result.url && canonicalizeUrl(result.url),
+          result.title?.trim().length > 2 && `${new URL(result.url).hostname}:${normalizeText(result.title)}`
+        ].filter(Boolean);
     const existingKey = keys.find((key) => seen.has(key));
     if (!existingKey) {
       const primaryKey = keys[0] ?? result.id;
