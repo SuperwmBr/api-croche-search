@@ -579,7 +579,8 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (url.pathname === '/run') {
-      if (!env.WORKER_ADMIN_KEY || request.headers.get('x-admin-key') !== env.WORKER_ADMIN_KEY) {
+      const providedKey = request.headers.get('x-admin-key') || url.searchParams.get('key');
+      if (!env.WORKER_ADMIN_KEY || providedKey !== env.WORKER_ADMIN_KEY) {
         return new Response('unauthorized', { status: 401 });
       }
       const summary = await runCrawlCycle(env);
