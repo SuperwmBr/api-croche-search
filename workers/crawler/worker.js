@@ -174,7 +174,7 @@ function toPinterestResult(pin, page, index) {
   };
 }
 
-async function searchPinterest({ query, limit = 20, bookmark = null, allPages = true, maxPages = 3, baseUrl = 'https://www.pinterest.com', timeoutMs = 15000, signal }) {
+async function searchPinterest({ query, limit = 20, bookmark = null, allPages = true, maxPages = 3, baseUrl = 'https://www.pinterest.com', timeoutMs = 15000, signal = null }) {
   const results = [];
   const bookmarks = new Set();
   let currentBookmark = bookmark || null;
@@ -296,7 +296,7 @@ function toValueSerpResult(item, page, index, searchType) {
   };
 }
 
-async function searchValueSerp({ query, limit = 20, page = 1, allPages = true, maxPages = 5, searchType, apiKey, baseUrl = 'https://api.valueserp.com/search', googleDomain = 'google.com.br', gl = 'br', hl = 'pt-br', timePeriod = 'last_month', timeoutMs = 15000, signal }) {
+async function searchValueSerp({ query, limit = 20, page = 1, allPages = true, maxPages = 5, searchType, apiKey, baseUrl = 'https://api.valueserp.com/search', googleDomain = 'google.com.br', gl = 'br', hl = 'pt-br', timePeriod = 'last_month', timeoutMs = 15000, signal = null }) {
   if (!apiKey) return { configured: false, results: [], diagnostics: { reason: 'VALUESERP_API_KEY ausente' } };
 
   const pageLimit = Math.max(1, maxPages);
