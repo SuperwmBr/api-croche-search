@@ -10,7 +10,7 @@ const sources = csv.refine((values) => values.every((value) => SUPPORTED_SOURCES
 const types = csv.refine((values) => values.every((value) => SUPPORTED_TYPES.includes(value)), {
   message: `tipos permitidos: ${SUPPORTED_TYPES.join(', ')}`
 });
-const provider = z.enum(['auto', 'searxng', 'valueserp', 'scraping']).default('auto');
+const provider = z.enum(['auto', 'searxng', 'valueserp', 'scraping', 'mix']).default('auto');
 
 export const searchQuerySchema = z.object({
   q: z.string().trim().min(2).max(env.SEARCH_MAX_QUERY_LENGTH),

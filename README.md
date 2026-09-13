@@ -26,7 +26,8 @@ O parâmetro `provedor` (ou `provider`) permite escolher o mecanismo usado:
 - `auto`: comportamento padrão, combinando D1, YouTube, SearXNG e Meilisearch quando configurado;
 - `searxng`: busca pública pelo SearXNG;
 - `valueserp`: busca pela ValueSerp, com `search_type=images` por padrão;
-- `scraping`: leitura direta de resultados do Pinterest pelo fluxo de `BaseSearchResource`, inspirado no projeto `crochet-chart-scraping`.
+- `scraping`: leitura direta de resultados do Pinterest pelo fluxo de `BaseSearchResource`, inspirado no projeto `crochet-chart-scraping`;
+- `mix`: dispara `scraping` (Pinterest) e `valueserp` em paralelo na mesma requisição e devolve o resultado unificado, já ranqueado e deduplicado junto. Diferente de `provedor=scraping` sozinho, o `mix` não usa o fluxo de crawl em segundo plano (bookmark persistido em `SEARCH_CRAWL_JOBS`) — cada chamada busca as páginas do Pinterest de forma síncrona, limitada por `lote_paginas`/`max_paginas`, exatamente como o ValueSerp.
 
 Exemplos:
 
@@ -34,6 +35,7 @@ Exemplos:
 GET /api/busca?q=icroche+grafico+de+croche&provedor=valueserp&fonte=web&todas_paginas=1
 GET /api/busca?q=grafico+de+croche&provedor=scraping&fonte=pinterest&todas_paginas=1
 GET /api/busca?q=flor+de+croche&provedor=valueserp&valueserp_tipo=images&max_paginas=100
+GET /api/busca?q=grafico+de+croche&provedor=mix&todas_paginas=1&limit=50
 ```
 
 Para o ValueSerp, `todas_paginas=1` é o padrão. A API continua avançando enquanto houver resultados/paginação disponível, interrompendo quando não houver novos resultados ou quando atingir `max_paginas`/`VALUESERP_MAX_PAGES`. A chave deve ficar somente no ambiente do servidor, em `VALUESERP_API_KEY`.

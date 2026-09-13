@@ -81,6 +81,12 @@ function buildCalls(params, variants, offset, crawlContext = null) {
 
   if (provider === 'valueserp') return { valueserp: buildValueSerpCall(params, query) };
   if (provider === 'scraping') return { scraping: buildPinterestCall(params, query, crawlContext) };
+  if (provider === 'mix') {
+    return {
+      scraping: buildPinterestCall(params, query, crawlContext),
+      valueserp: buildValueSerpCall(params, query)
+    };
+  }
 
   if (!params.fonte?.length) {
     if (provider === 'searxng') return { searxng: buildSearxngCall(params, query, variants) };
@@ -197,7 +203,7 @@ export async function search(params) {
   });
 
   const allFetched = rankAndFilter(Object.values(grouped).flat(), params.tipo);
-  const returnAllFetched = params.todas_paginas && ['scraping', 'valueserp'].includes(provider);
+  const returnAllFetched = params.todas_paginas && ['scraping', 'valueserp', 'mix'].includes(provider);
   const selectedProviderDetails = providerDetails[provider] || {};
   const providerFailed = Object.values(providers).some(isProviderFailure);
   let results;
