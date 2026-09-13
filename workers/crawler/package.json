@@ -1,0 +1,14 @@
+{
+  "name": "croche-search-crawler",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail",
+    "run-now": "wrangler dev --test-scheduled"
+  },
+  "devDependencies": {
+    "wrangler": "^4.131.1"
+  }
+}

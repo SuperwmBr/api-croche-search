@@ -1,0 +1,33 @@
+name = "croche-search-crawler"
+main = "src/index.js"
+compatibility_date = "2025-09-01"
+
+# Roda a cada 30 minutos. Ajuste conforme o volume de queries/consumo
+# de cota do ValueSerp que fizer sentido.
+[triggers]
+crons = ["*/30 * * * *"]
+
+# Mesma base D1 já usada pela API (tutoriais-croche).
+# Binding nativo: consultas rodam dentro da rede da Cloudflare,
+# sem o round-trip HTTP público que a API faz via REST (api.cloudflare.com).
+[[d1_databases]]
+binding = "DB"
+database_name = "tutoriais-croche"
+database_id = "020a20e7-829a-4df3-9e15-ed37949901b5"
+
+[vars]
+PINTEREST_BASE_URL = "https://www.pinterest.com"
+PINTEREST_MAX_PAGES = "3"
+PINTEREST_TIMEOUT_MS = "15000"
+VALUESERP_SEARCH_TYPE = "images"
+VALUESERP_GOOGLE_DOMAIN = "google.com.br"
+VALUESERP_GL = "br"
+VALUESERP_HL = "pt-br"
+VALUESERP_TIME_PERIOD = "last_month"
+VALUESERP_MAX_PAGES = "5"
+VALUESERP_TIMEOUT_MS = "15000"
+TRACKED_QUERIES_LIMIT = "10"
+
+# Segredos - NUNCA colocar aqui. Configurar via:
+#   wrangler secret put VALUESERP_API_KEY
+#   wrangler secret put WORKER_ADMIN_KEY   (opcional, protege o endpoint manual /run)
