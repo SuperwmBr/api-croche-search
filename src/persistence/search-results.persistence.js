@@ -8,6 +8,20 @@ const URL_REGISTRY_PARAMETERS_PER_ROW = 5;
 const SEARCH_RESULT_PARAMETERS_PER_ROW = 15;
 const URL_REGISTRY_BATCH_SIZE = Math.floor(D1_MAX_BOUND_PARAMETERS / URL_REGISTRY_PARAMETERS_PER_ROW);
 const SEARCH_RESULT_BATCH_SIZE = Math.floor(D1_MAX_BOUND_PARAMETERS / SEARCH_RESULT_PARAMETERS_PER_ROW);
+const PERSISTENCE_BATCH_CONCURRENCY = 8;
+
+async function runBatched(items, batchSize, worker) {
+  const batches = [];
+  for (let start = 0; start < items.length; start += batchSize) {
+    batches.push(items.slice(start, start + batchSize));
+  }
+  const results = [];
+  for (let i = 0; i < batches.length; i += PERSISTENCE_BATCH_CONCURRENCY) {
+    const chunk = batches.slice(i, i + PERSISTENCE_BATCH_CONCURRENCY);
+    results.push(...await Promise.all(chunk.map(worker)));
+  }
+  return results;
+}
 
 async function ensureUrlsSchema(signal) {
   if (urlsSchemaReady) return;
@@ -32,13 +46,17 @@ function rows(results) {
     const canonicalUrl = canonicalizeUrl(url);
     const title = String(item.title || url).slice(0, 500);
     const tags = Array.isArray(item.tags) ? item.tags : [];
+    const imageUrl = item.image ? String(item.image).slice(0, 4000) : null;
+    const externalId = item.externalId ? String(item.externalId).slice(0, 500) : null;
+    const source = String(item.origin || 'web').slice(0, 40);
     return {
       url,
       canonicalUrl,
-      imageUrl: item.image ? String(item.image).slice(0, 4000) : null,
+      imageUrl,
       provider: String(item.provider || item.engine || item.origin || 'unknown').slice(0, 80),
-      source: String(item.origin || 'web').slice(0, 40),
-      externalId: item.externalId ? String(item.externalId).slice(0, 500) : null,
+      source,
+      externalId,
+      dedupeKey: externalId ? `${source}::${externalId}` : `${canonicalUrl}::${imageUrl || ''}`,
       type: String(item.type || 'artigo').slice(0, 40),
       title,
       description: item.description ? String(item.description).slice(0, 5000) : null,
@@ -51,15 +69,14 @@ function rows(results) {
       sourceQuality: Number.isFinite(item.rankingSignals?.sourceQuality) ? item.rankingSignals.sourceQuality : 0.5
     };
   }).filter(Boolean);
-  return [...new Map(mapped.map((item) => [item.canonicalUrl, item])).values()];
+  return [...new Map(mapped.map((item) => [item.dedupeKey, item])).values()];
 }
 
 async function insertUrlRegistry(items, signal) {
-  for (let start = 0; start < items.length; start += URL_REGISTRY_BATCH_SIZE) {
-    const batch = items.slice(start, start + URL_REGISTRY_BATCH_SIZE);
+  await runBatched(items, URL_REGISTRY_BATCH_SIZE, (batch) => {
     const values = batch.map(() => "(?,?,?,?,?,datetime('now'),datetime('now'))").join(',');
     const params = batch.flatMap((item) => [item.canonicalUrl, item.url, item.imageUrl, item.provider, item.source]);
-    await queryD1(`INSERT INTO SEARCH_URLS (canonical_url,original_url,image_url,provider,source,first_seen_at,last_seen_at)
+    return queryD1(`INSERT INTO SEARCH_URLS (canonical_url,original_url,image_url,provider,source,first_seen_at,last_seen_at)
       VALUES ${values}
       ON CONFLICT(canonical_url) DO UPDATE SET
         original_url=excluded.original_url,
@@ -67,13 +84,11 @@ async function insertUrlRegistry(items, signal) {
         provider=excluded.provider,
         source=excluded.source,
         last_seen_at=datetime('now')`, params, { signal });
-  }
+  });
 }
 
 async function insertResults(items, signal) {
-  let inserted = 0;
-  for (let start = 0; start < items.length; start += SEARCH_RESULT_BATCH_SIZE) {
-    const batch = items.slice(start, start + SEARCH_RESULT_BATCH_SIZE);
+  const changes = await runBatched(items, SEARCH_RESULT_BATCH_SIZE, async (batch) => {
     const values = batch.map(() => "(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'active',datetime('now'),datetime('now'))").join(',');
     const params = batch.flatMap((item) => [
       item.externalId, item.type, item.source, item.title, item.description, item.url,
@@ -83,9 +98,9 @@ async function insertResults(items, signal) {
     const result = await queryD1(`INSERT OR IGNORE INTO SEARCH_RESULTS
       (external_id,type,source,title,description,url,canonical_url,image_url,author,language,published_at,tags_json,metadata_json,title_hash,source_quality,status,indexed_at,updated_at)
       VALUES ${values}`, params, { signal });
-    inserted += Number(result.meta?.changes || 0);
-  }
-  return inserted;
+    return Number(result.meta?.changes || 0);
+  });
+  return changes.reduce((sum, n) => sum + n, 0);
 }
 
 export async function persistSearchResults(results, { signal } = {}) {

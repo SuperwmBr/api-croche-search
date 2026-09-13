@@ -24,6 +24,7 @@ const schema = z.object({
   SEARCH_CACHE_TTL_SECONDS: z.coerce.number().int().positive().default(900),
   SEARCH_MAX_QUERY_LENGTH: z.coerce.number().int().min(20).max(500).default(180),
   SEARCH_PROVIDER_TIMEOUT_MS: z.coerce.number().int().positive().default(6000),
+  SEARCH_PERSISTENCE_TIMEOUT_MS: z.coerce.number().int().positive().default(30000),
   VALUESERP_API_KEY: z.string().optional().transform(emptyToUndefined),
   VALUESERP_BASE_URL: z.string().url().default('https://api.valueserp.com/search'),
   VALUESERP_SEARCH_TYPE: z.enum(['images', 'search', 'news', 'shopping']).default('images'),

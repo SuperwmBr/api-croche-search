@@ -42,6 +42,8 @@ Para o ValueSerp, `todas_paginas=1` é o padrão. **Se `max_paginas` não for in
 
 O scraping do Pinterest usa `bookmark` para percorrer as páginas disponíveis e extrai a imagem original do pin (`images.orig.url`) quando fornecida.
 
+A persistência no D1 (`SEARCH_URLS`/`SEARCH_RESULTS`) grava os resultados em lotes (limite de 100 parâmetros por statement do D1), disparados com concorrência limitada (8 lotes simultâneos) e timeout próprio via `SEARCH_PERSISTENCE_TIMEOUT_MS` (30s por padrão) — separado do `SEARCH_PROVIDER_TIMEOUT_MS` usado nas buscas leves (D1 interno/YouTube), já que lotes de centenas de itens (comuns em `provedor=mix`) tomam bem mais tempo que uma única consulta.
+
 Quando `provedor=valueserp` ou `provedor=scraping` é usado com `todas_paginas=1`, `limit` define o tamanho solicitado por página. No Pinterest, a API limita cada lote a `PINTEREST_BATCH_MAX_PAGES` páginas (3 por padrão), grava o bookmark internamente e continua a coleta em segundo plano, evitando que o cliente precise conhecer ou enviar qualquer cursor do Pinterest.
 
 ```text

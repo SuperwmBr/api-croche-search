@@ -223,7 +223,7 @@ export async function search(params) {
   let persistence = { configured: env.d1Configured, persisted: 0, duplicates: 0, canonicalUrls: [] };
   if (env.d1Configured && allFetched.length) {
     try {
-      persistence = await persistSearchResults(allFetched, { signal: timeoutSignal(env.SEARCH_PROVIDER_TIMEOUT_MS) });
+      persistence = await persistSearchResults(allFetched, { signal: timeoutSignal(env.SEARCH_PERSISTENCE_TIMEOUT_MS) });
     } catch (error) {
       persistence = { configured: true, persisted: 0, duplicates: 0, error: error?.message || 'd1_persistence_failed' };
       console.error('[search-persistence]', error?.message || error);
