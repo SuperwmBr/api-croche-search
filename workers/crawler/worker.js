@@ -552,13 +552,26 @@ async function crawlQuery(env, query) {
   return { ranked: rankAndFilter(collected), diagnostics };
 }
 
+const DEFAULT_TRACKED_QUERIES_LIMIT = 5;
+const DEFAULT_MAX_CYCLE_MS = 4 * 60 * 1000; // 4 minutos
+
 async function runQueries(env, queries) {
   const summary = [];
+  const maxCycleMs = Number(env.MAX_CYCLE_MS || DEFAULT_MAX_CYCLE_MS);
+  const startedAt = Date.now();
 
   // Sequencial de propósito: evita disparar N buscas simultâneas (rate limit).
   // É trabalho de fundo via cron/waitUntil, não uma requisição de usuário
-  // esperando resposta.
-  for (const query of queries) {
+  // esperando resposta. O orçamento de tempo abaixo garante que o ciclo
+  // sempre termina sozinho, mesmo se algum provider ficar lento/instável -
+  // sem isso, uma query ruim podia segurar o ciclo inteiro indefinidamente.
+  for (let i = 0; i < queries.length; i += 1) {
+    if (Date.now() - startedAt > maxCycleMs) {
+      const remaining = queries.length - i;
+      console.warn(`[crawl] orcamento de tempo (${maxCycleMs}ms) esgotado - ${remaining} query(s) restante(s) pulada(s) neste ciclo`);
+      break;
+    }
+    const query = queries[i];
     console.log(`[crawl] iniciando: "${query}"`);
     try {
       const { ranked, diagnostics } = await crawlQuery(env, query);
@@ -570,12 +583,12 @@ async function runQueries(env, queries) {
       summary.push({ query, error: error?.message || 'crawl_failed' });
     }
   }
-  console.log(`[crawl] ciclo completo - ${queries.length} queries processadas`);
+  console.log(`[crawl] ciclo finalizado - ${summary.length}/${queries.length} queries processadas em ${Date.now() - startedAt}ms`);
   return summary;
 }
 
 async function runCrawlCycle(env) {
-  const limit = Number(env.TRACKED_QUERIES_LIMIT || 10);
+  const limit = Number(env.TRACKED_QUERIES_LIMIT || DEFAULT_TRACKED_QUERIES_LIMIT);
   const queries = await deriveTrackedQueries(env.DB, limit);
   return runQueries(env, queries);
 }
@@ -597,7 +610,7 @@ export default {
       // providers x varias paginas, sequencial). O processamento roda em
       // segundo plano via waitUntil; acompanhe pelos logs (Real-time Logs
       // no dashboard, ou `wrangler tail`).
-      const limit = Number(env.TRACKED_QUERIES_LIMIT || 10);
+      const limit = Number(env.TRACKED_QUERIES_LIMIT || DEFAULT_TRACKED_QUERIES_LIMIT);
       const queries = await deriveTrackedQueries(env.DB, limit);
       ctx.waitUntil(runQueries(env, queries));
       return new Response(JSON.stringify({ started: true, queries, note: 'Processamento em segundo plano - acompanhe pelos logs (Real-time Logs no dashboard).' }, null, 2), {
