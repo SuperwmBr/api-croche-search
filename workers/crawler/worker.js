@@ -552,23 +552,32 @@ async function crawlQuery(env, query) {
   return { ranked: rankAndFilter(collected), diagnostics };
 }
 
-async function runCrawlCycle(env) {
-  const limit = Number(env.TRACKED_QUERIES_LIMIT || 10);
-  const queries = await deriveTrackedQueries(env.DB, limit);
+async function runQueries(env, queries) {
   const summary = [];
 
   // Sequencial de propósito: evita disparar N buscas simultâneas (rate limit).
-  // É trabalho de fundo via cron, não uma requisição de usuário esperando.
+  // É trabalho de fundo via cron/waitUntil, não uma requisição de usuário
+  // esperando resposta.
   for (const query of queries) {
+    console.log(`[crawl] iniciando: "${query}"`);
     try {
       const { ranked, diagnostics } = await crawlQuery(env, query);
       const persistence = await persistSearchResults(env.DB, ranked);
+      console.log(`[crawl] concluida: "${query}" - fetched=${ranked.length} persisted=${persistence.persisted} duplicates=${persistence.duplicates}`);
       summary.push({ query, fetched: ranked.length, ...persistence, diagnostics });
     } catch (error) {
+      console.error(`[crawl] falhou: "${query}" - ${error?.message || error}`);
       summary.push({ query, error: error?.message || 'crawl_failed' });
     }
   }
+  console.log(`[crawl] ciclo completo - ${queries.length} queries processadas`);
   return summary;
+}
+
+async function runCrawlCycle(env) {
+  const limit = Number(env.TRACKED_QUERIES_LIMIT || 10);
+  const queries = await deriveTrackedQueries(env.DB, limit);
+  return runQueries(env, queries);
 }
 
 export default {
@@ -576,15 +585,24 @@ export default {
     ctx.waitUntil(runCrawlCycle(env));
   },
 
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     if (url.pathname === '/run') {
       const providedKey = request.headers.get('x-admin-key') || url.searchParams.get('key');
       if (!env.WORKER_ADMIN_KEY || providedKey !== env.WORKER_ADMIN_KEY) {
         return new Response('unauthorized', { status: 401 });
       }
-      const summary = await runCrawlCycle(env);
-      return new Response(JSON.stringify(summary, null, 2), { headers: { 'content-type': 'application/json' } });
+      // Deriva as queries e RESPONDE NA HORA com a lista - não espera o
+      // ciclo inteiro terminar (pode levar minutos: N queries x 2
+      // providers x varias paginas, sequencial). O processamento roda em
+      // segundo plano via waitUntil; acompanhe pelos logs (Real-time Logs
+      // no dashboard, ou `wrangler tail`).
+      const limit = Number(env.TRACKED_QUERIES_LIMIT || 10);
+      const queries = await deriveTrackedQueries(env.DB, limit);
+      ctx.waitUntil(runQueries(env, queries));
+      return new Response(JSON.stringify({ started: true, queries, note: 'Processamento em segundo plano - acompanhe pelos logs (Real-time Logs no dashboard).' }, null, 2), {
+        headers: { 'content-type': 'application/json' }
+      });
     }
     return new Response('croche-search-crawler worker ok', { status: 200 });
   }
