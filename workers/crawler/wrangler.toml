@@ -2,10 +2,11 @@ name = "croche-search-crawler"
 main = "worker.js"
 compatibility_date = "2025-09-01"
 
-# Roda a cada 30 minutos. Ajuste conforme o volume de queries/consumo
-# de cota do ValueSerp que fizer sentido.
+# Cada disparo processa UMA query da fila (ver worker.js) - a cada 2 minutos
+# dá pra girar um lote de 5 queries em ~10 minutos. Ajuste conforme sua
+# cota do ValueSerp e a frequencia que fizer sentido.
 [triggers]
-crons = ["*/30 * * * *"]
+crons = ["*/2 * * * *"]
 
 # Mesma base D1 já usada pela API (tutoriais-croche).
 # Binding nativo: consultas rodam dentro da rede da Cloudflare,
@@ -17,17 +18,16 @@ database_id = "020a20e7-829a-4df3-9e15-ed37949901b5"
 
 [vars]
 PINTEREST_BASE_URL = "https://www.pinterest.com"
-PINTEREST_MAX_PAGES = "3"
-PINTEREST_TIMEOUT_MS = "15000"
+PINTEREST_MAX_PAGES = "2"
+PINTEREST_TIMEOUT_MS = "10000"
 VALUESERP_SEARCH_TYPE = "images"
 VALUESERP_GOOGLE_DOMAIN = "google.com.br"
 VALUESERP_GL = "br"
 VALUESERP_HL = "pt-br"
 VALUESERP_TIME_PERIOD = "last_month"
-VALUESERP_MAX_PAGES = "5"
-VALUESERP_TIMEOUT_MS = "15000"
+VALUESERP_MAX_PAGES = "2"
+VALUESERP_TIMEOUT_MS = "10000"
 TRACKED_QUERIES_LIMIT = "5"
-MAX_CYCLE_MS = "240000"
 
 # Segredos - NUNCA colocar aqui. Configurar via:
 #   wrangler secret put VALUESERP_API_KEY

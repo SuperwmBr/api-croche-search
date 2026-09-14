@@ -416,7 +416,9 @@ async function deriveTrackedQueries(db, limit = 10) {
         const tags = JSON.parse(row.tags_json || '[]');
         for (const tag of tags) {
           const normalizedTag = normalizeText(String(tag));
-          if (normalizedTag.length > 2) freq.set(normalizedTag, (freq.get(normalizedTag) || 0) + 2);
+          if (normalizedTag.length <= 2) continue;
+          if (!CROCHET_MARKERS.some((marker) => normalizedTag.includes(marker))) continue;
+          freq.set(normalizedTag, (freq.get(normalizedTag) || 0) + 2);
         }
       } catch {}
     }
@@ -552,20 +554,20 @@ async function crawlQuery(env, query) {
   const [pinterest, valueserp] = await Promise.allSettled([
     searchPinterest({
       query, limit: 100, allPages: true,
-      maxPages: Number(env.PINTEREST_MAX_PAGES || 3),
+      maxPages: Number(env.PINTEREST_MAX_PAGES || 2),
       baseUrl: env.PINTEREST_BASE_URL || 'https://www.pinterest.com',
-      timeoutMs: Number(env.PINTEREST_TIMEOUT_MS || 15000)
+      timeoutMs: Number(env.PINTEREST_TIMEOUT_MS || 10000)
     }),
     searchValueSerp({
       query, allPages: true,
-      maxPages: Number(env.VALUESERP_MAX_PAGES || 5),
+      maxPages: Number(env.VALUESERP_MAX_PAGES || 2),
       searchType: env.VALUESERP_SEARCH_TYPE || 'images',
       apiKey: env.VALUESERP_API_KEY,
       googleDomain: env.VALUESERP_GOOGLE_DOMAIN || 'google.com.br',
       gl: env.VALUESERP_GL || 'br',
       hl: env.VALUESERP_HL || 'pt-br',
       timePeriod: env.VALUESERP_TIME_PERIOD || 'last_month',
-      timeoutMs: Number(env.VALUESERP_TIMEOUT_MS || 15000)
+      timeoutMs: Number(env.VALUESERP_TIMEOUT_MS || 10000)
     })
   ]);
 
@@ -581,54 +583,93 @@ async function crawlQuery(env, query) {
   return { ranked, diagnostics };
 }
 
+// ---------------------------------------------------------------------------
+// Fila de queries persistida no D1 - UMA query processada por invocação
+// ---------------------------------------------------------------------------
+// Por que isso existe: um teste real em produção mostrou que o Cloudflare
+// mata tarefas de ctx.waitUntil() que não terminam em ~30s após a resposta
+// ("waitUntil() tasks did not complete within the allowed time... and have
+// been cancelled") - processar N queries sequenciais num só disparo (cron
+// ou /run) SEMPRE vai esbarrar nisso mais cedo ou mais tarde, não importa
+// o orçamento de tempo interno que a gente tente impor. A correção de
+// verdade é nunca fazer uma invocação carregar mais que ~1 query de
+// trabalho, e deixar o PRÓPRIO cron (repetindo a cada poucos minutos)
+// ser o mecanismo que avança a fila ao longo do tempo.
+
 const DEFAULT_TRACKED_QUERIES_LIMIT = 5;
-const DEFAULT_MAX_CYCLE_MS = 4 * 60 * 1000; // 4 minutos
+const MAX_TRACKED_QUERIES_LIMIT = 20; // teto de segurança, mesmo se a var de ambiente vier absurda
 
-async function runQueries(env, queries) {
-  const summary = [];
-  const maxCycleMs = Number(env.MAX_CYCLE_MS || DEFAULT_MAX_CYCLE_MS);
-  const startedAt = Date.now();
+let queueSchemaReady = false;
 
-  // Sequencial de propósito: evita disparar N buscas simultâneas (rate limit).
-  // É trabalho de fundo via cron/waitUntil, não uma requisição de usuário
-  // esperando resposta. O orçamento de tempo abaixo garante que o ciclo
-  // sempre termina sozinho, mesmo se algum provider ficar lento/instável -
-  // sem isso, uma query ruim podia segurar o ciclo inteiro indefinidamente.
-  for (let i = 0; i < queries.length; i += 1) {
-    if (Date.now() - startedAt > maxCycleMs) {
-      const remaining = queries.length - i;
-      console.warn(`[crawl] orcamento de tempo (${maxCycleMs}ms) esgotado - ${remaining} query(s) restante(s) pulada(s) neste ciclo`);
-      break;
-    }
-    const query = queries[i];
-    console.log(`[crawl] iniciando: "${query}"`);
-    try {
-      const { ranked, diagnostics } = await crawlQuery(env, query);
-      const persistence = await persistSearchResults(env.DB, ranked);
-      console.log(`[crawl] concluida: "${query}" - fetched=${ranked.length} persisted=${persistence.persisted} duplicates=${persistence.duplicates}`);
-      summary.push({ query, fetched: ranked.length, ...persistence, diagnostics });
-    } catch (error) {
-      console.error(`[crawl] falhou: "${query}" - ${error?.message || error}`);
-      summary.push({ query, error: error?.message || 'crawl_failed' });
-    }
-  }
-  console.log(`[crawl] ciclo finalizado - ${summary.length}/${queries.length} queries processadas em ${Date.now() - startedAt}ms`);
-  return summary;
+async function ensureQueueSchema(db) {
+  if (queueSchemaReady) return;
+  await db.prepare(`CREATE TABLE IF NOT EXISTS CRAWL_QUEUE (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    query TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    processed_at TEXT
+  )`).run();
+  queueSchemaReady = true;
 }
 
-async function runCrawlCycle(env) {
-  const limit = Number(env.TRACKED_QUERIES_LIMIT || DEFAULT_TRACKED_QUERIES_LIMIT);
+async function refillQueue(env) {
+  const limit = Math.min(Number(env.TRACKED_QUERIES_LIMIT || DEFAULT_TRACKED_QUERIES_LIMIT), MAX_TRACKED_QUERIES_LIMIT);
   const queries = await deriveTrackedQueries(env.DB, limit);
-  return runQueries(env, queries);
+  const statements = queries.map((query) => env.DB.prepare('INSERT INTO CRAWL_QUEUE (query, status) VALUES (?, \'pending\')').bind(query));
+  if (statements.length) await env.DB.batch(statements);
+  console.log(`[queue] fila recarregada com ${queries.length} query(s): ${JSON.stringify(queries)}`);
+  return queries;
+}
+
+// Processa UM item da fila (o mais antigo pendente). Se a fila estiver
+// vazia, recarrega com um novo lote derivado e processa o primeiro.
+// Retorna null se não havia nada a fazer (ex: sem VALUESERP_API_KEY e
+// deriveTrackedQueries não achou nada, o que não deveria acontecer por
+// causa da lista-semente, mas é uma guarda de qualquer forma).
+async function processNextInQueue(env) {
+  await ensureQueueSchema(env.DB);
+
+  let { results: pending } = await env.DB.prepare(
+    `SELECT id, query FROM CRAWL_QUEUE WHERE status = 'pending' ORDER BY id ASC LIMIT 1`
+  ).all();
+
+  if (!pending?.length) {
+    console.log('[queue] vazia - recarregando com novo lote derivado de SEARCH_RESULTS');
+    await refillQueue(env);
+    ({ results: pending } = await env.DB.prepare(
+      `SELECT id, query FROM CRAWL_QUEUE WHERE status = 'pending' ORDER BY id ASC LIMIT 1`
+    ).all());
+  }
+
+  if (!pending?.length) {
+    console.warn('[queue] nada pra processar mesmo apos recarregar (inesperado)');
+    return null;
+  }
+
+  const { id, query } = pending[0];
+  console.log(`[queue] processando item #${id}: "${query}"`);
+
+  try {
+    const { ranked, diagnostics } = await crawlQuery(env, query);
+    const persistence = await persistSearchResults(env.DB, ranked);
+    await env.DB.prepare(`UPDATE CRAWL_QUEUE SET status = 'done', processed_at = datetime('now') WHERE id = ?`).bind(id).run();
+    console.log(`[queue] item #${id} "${query}" concluido - fetched=${ranked.length} persisted=${persistence.persisted} duplicates=${persistence.duplicates}`);
+    return { id, query, fetched: ranked.length, ...persistence, diagnostics };
+  } catch (error) {
+    await env.DB.prepare(`UPDATE CRAWL_QUEUE SET status = 'failed', processed_at = datetime('now') WHERE id = ?`).bind(id).run();
+    console.error(`[queue] item #${id} "${query}" falhou - ${error?.message || error}`);
+    return { id, query, error: error?.message || 'crawl_failed' };
+  }
 }
 
 export default {
   async scheduled(event, env, ctx) {
     console.log(`[worker] cron disparado (cron="${event.cron}")`);
-    ctx.waitUntil(runCrawlCycle(env));
+    ctx.waitUntil(processNextInQueue(env));
   },
 
-  async fetch(request, env, ctx) {
+  async fetch(request, env) {
     const url = new URL(request.url);
     if (url.pathname === '/run') {
       const providedKey = request.headers.get('x-admin-key') || url.searchParams.get('key');
@@ -637,17 +678,22 @@ export default {
         return new Response('unauthorized', { status: 401 });
       }
       console.log('[worker] /run disparado manualmente');
-      // Deriva as queries e RESPONDE NA HORA com a lista - não espera o
-      // ciclo inteiro terminar (pode levar minutos: N queries x 2
-      // providers x varias paginas, sequencial). O processamento roda em
-      // segundo plano via waitUntil; acompanhe pelos logs (Real-time Logs
-      // no dashboard, ou `wrangler tail`).
-      const limit = Number(env.TRACKED_QUERIES_LIMIT || DEFAULT_TRACKED_QUERIES_LIMIT);
-      const queries = await deriveTrackedQueries(env.DB, limit);
-      ctx.waitUntil(runQueries(env, queries));
-      return new Response(JSON.stringify({ started: true, queries, note: 'Processamento em segundo plano - acompanhe pelos logs (Real-time Logs no dashboard).' }, null, 2), {
+      // Processa UM item da fila e ESPERA terminar antes de responder -
+      // diferente da versão anterior, não depende de waitUntil sobreviver
+      // além da resposta. Uma unica query (2 paginas por provider, no
+      // maximo) termina em segundos, bem dentro do tempo que uma resposta
+      // HTTP normal aguenta.
+      const result = await processNextInQueue(env);
+      return new Response(JSON.stringify({ processed: result }, null, 2), {
         headers: { 'content-type': 'application/json' }
       });
+    }
+    if (url.pathname === '/queue') {
+      await ensureQueueSchema(env.DB);
+      const { results } = await env.DB.prepare(
+        `SELECT status, COUNT(*) as total FROM CRAWL_QUEUE GROUP BY status`
+      ).all();
+      return new Response(JSON.stringify({ queue: results }, null, 2), { headers: { 'content-type': 'application/json' } });
     }
     return new Response('croche-search-crawler worker ok', { status: 200 });
   }
