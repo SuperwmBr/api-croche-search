@@ -184,6 +184,7 @@ async function searchPinterest({ query, limit = 20, bookmark = null, allPages = 
   const pageLimit = Math.max(1, maxPages);
 
   while (hasMore && pagesCompleted < pageLimit) {
+    console.log(`[pinterest] "${query}" - buscando pagina ${pagesCompleted + 1}/${pageLimit}${currentBookmark ? ' (bookmark)' : ''}`);
     const sourceUrl = `/search/pins/?q=${encodeURIComponent(query)}&rs=typed`;
     const data = {
       options: {
@@ -204,6 +205,7 @@ async function searchPinterest({ query, limit = 20, bookmark = null, allPages = 
       body = await response.json().catch(() => null);
       if (!response.ok || !body) throw new Error(`Pinterest scraping failed (${response.status})`);
     } catch (error) {
+      console.error(`[pinterest] "${query}" - pagina ${pagesCompleted + 1} falhou: ${error?.message || error}`);
       if (pagesCompleted === 0) throw error;
       pageError = error?.message || 'pinterest_page_failed';
       hasMore = true;
@@ -214,6 +216,7 @@ async function searchPinterest({ query, limit = 20, bookmark = null, allPages = 
     const items = resource.data?.results || body.data?.results || [];
     pagesCompleted += 1;
     results.push(...items.map((item, index) => toPinterestResult(item, pagesCompleted, index)).filter(Boolean));
+    console.log(`[pinterest] "${query}" - pagina ${pagesCompleted} ok - ${items.length} itens brutos`);
     const nextBookmark = resource.bookmark || body.bookmark || null;
     if (!allPages || !nextBookmark || bookmarks.has(nextBookmark) || nextBookmark === currentBookmark || items.length === 0) {
       hasMore = false;
@@ -223,6 +226,7 @@ async function searchPinterest({ query, limit = 20, bookmark = null, allPages = 
     }
   }
 
+  console.log(`[pinterest] "${query}" - finalizado: ${pagesCompleted} pagina(s), ${results.length} resultado(s), hasMore=${hasMore}`);
   return {
     configured: true,
     partial: hasMore || Boolean(pageError),
@@ -297,7 +301,10 @@ function toValueSerpResult(item, page, index, searchType) {
 }
 
 async function searchValueSerp({ query, limit = 20, page = 1, allPages = true, maxPages = 5, searchType, apiKey, baseUrl = 'https://api.valueserp.com/search', googleDomain = 'google.com.br', gl = 'br', hl = 'pt-br', timePeriod = 'last_month', timeoutMs = 15000, signal = null }) {
-  if (!apiKey) return { configured: false, results: [], diagnostics: { reason: 'VALUESERP_API_KEY ausente' } };
+  if (!apiKey) {
+    console.warn(`[valueserp] "${query}" - VALUESERP_API_KEY ausente, pulando este provider`);
+    return { configured: false, results: [], diagnostics: { reason: 'VALUESERP_API_KEY ausente' } };
+  }
 
   const pageLimit = Math.max(1, maxPages);
   const results = [];
@@ -308,6 +315,7 @@ async function searchValueSerp({ query, limit = 20, page = 1, allPages = true, m
   let hasMore = true;
 
   while (hasMore && pagesCompleted < pageLimit) {
+    console.log(`[valueserp] "${query}" - buscando pagina ${currentPage} (${pagesCompleted + 1}/${pageLimit})`);
     const url = new URL(baseUrl);
     url.searchParams.set('api_key', apiKey);
     url.searchParams.set('search_type', searchType || 'images');
@@ -325,6 +333,7 @@ async function searchValueSerp({ query, limit = 20, page = 1, allPages = true, m
       body = await response.json().catch(() => null);
       if (!response.ok || !body) throw new Error(`ValueSerp request failed (${response.status})`);
     } catch (error) {
+      console.error(`[valueserp] "${query}" - pagina ${currentPage} falhou: ${error?.message || error}`);
       pagesFailed += 1;
       if (pagesCompleted === 0) throw error;
       hasMore = true;
@@ -333,10 +342,15 @@ async function searchValueSerp({ query, limit = 20, page = 1, allPages = true, m
 
     const items = valueSerpPageItems(body);
     const pageSignature = valueSerpSignature(items);
-    if (seenPages.has(pageSignature)) { hasMore = false; break; }
+    if (seenPages.has(pageSignature)) {
+      console.log(`[valueserp] "${query}" - pagina ${currentPage} repetida (sem itens novos), parando`);
+      hasMore = false;
+      break;
+    }
     seenPages.add(pageSignature);
     pagesCompleted += 1;
     results.push(...items.map((item, index) => toValueSerpResult(item, currentPage, index, searchType || 'images')).filter(Boolean));
+    console.log(`[valueserp] "${query}" - pagina ${currentPage} ok - ${items.length} itens brutos`);
 
     if (!allPages || items.length === 0) { hasMore = false; break; }
     const next = valueSerpNextPage(body, currentPage);
@@ -344,6 +358,7 @@ async function searchValueSerp({ query, limit = 20, page = 1, allPages = true, m
     hasMore = Boolean(items.length && pagesCompleted < pageLimit);
   }
 
+  console.log(`[valueserp] "${query}" - finalizado: ${pagesCompleted} pagina(s) ok, ${pagesFailed} falhou(aram), ${results.length} resultado(s)`);
   return {
     configured: true,
     partial: pagesFailed > 0 || (allPages && pagesCompleted >= pageLimit && hasMore),
@@ -389,6 +404,7 @@ async function deriveTrackedQueries(db, limit = 10) {
     const { results } = await db.prepare(
       `SELECT title, tags_json FROM SEARCH_RESULTS WHERE status = 'active' ORDER BY indexed_at DESC LIMIT 500`
     ).all();
+    console.log(`[queries] lidas ${results?.length ?? 0} linha(s) de SEARCH_RESULTS pra derivar termos`);
 
     for (const row of results ?? []) {
       const tokens = tokenizeQuery(row.title || '');
@@ -410,7 +426,9 @@ async function deriveTrackedQueries(db, limit = 10) {
 
   const derived = [...freq.entries()].sort((a, b) => b[1] - a[1]).map(([phrase]) => phrase);
   const combined = [...new Set([...derived, ...SEED_QUERIES])];
-  return combined.slice(0, limit);
+  const final = combined.slice(0, limit);
+  console.log(`[queries] derivadas: ${derived.length} termo(s) reais - lista final (${final.length}/${limit}): ${JSON.stringify(final)}`);
+  return final;
 }
 
 // ---------------------------------------------------------------------------
@@ -429,6 +447,7 @@ let schemaReady = false;
 
 async function ensureSchema(db) {
   if (schemaReady) return;
+  console.log('[persist] verificando/criando schema SEARCH_URLS (primeira vez nesta instancia)');
   await db.prepare(`CREATE TABLE IF NOT EXISTS SEARCH_URLS (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     canonical_url TEXT NOT NULL UNIQUE,
@@ -441,6 +460,7 @@ async function ensureSchema(db) {
   )`).run();
   await db.prepare('CREATE INDEX IF NOT EXISTS IDX_SEARCH_URLS_SOURCE ON SEARCH_URLS(source, last_seen_at DESC)').run();
   schemaReady = true;
+  console.log('[persist] schema OK');
 }
 
 async function toPersistenceRows(results) {
@@ -482,7 +502,11 @@ function chunk(items, size) {
 
 async function persistSearchResults(db, results) {
   const items = await toPersistenceRows(results);
-  if (!items.length) return { persisted: 0, duplicates: 0 };
+  if (!items.length) {
+    console.log('[persist] nada pra persistir (0 itens apos dedupe)');
+    return { persisted: 0, duplicates: 0 };
+  }
+  console.log(`[persist] gravando ${items.length} item(ns) unico(s) em ${chunk(items, URL_REGISTRY_BATCH_SIZE).length} lote(s) de URL + ${chunk(items, SEARCH_RESULT_BATCH_SIZE).length} lote(s) de resultado - 1 unica viagem de rede (db.batch)`);
   await ensureSchema(db);
 
   const urlStatements = chunk(items, URL_REGISTRY_BATCH_SIZE).map((batch) => {
@@ -513,8 +537,10 @@ async function persistSearchResults(db, results) {
   const batchResults = await db.batch([...urlStatements, ...resultStatements]);
   const resultOutcomes = batchResults.slice(urlStatements.length);
   const inserted = resultOutcomes.reduce((sum, outcome) => sum + Number(outcome.meta?.changes || 0), 0);
+  const duplicates = Math.max(0, results.length - inserted);
+  console.log(`[persist] gravado: ${inserted} nova(s) linha(s) em SEARCH_RESULTS, ${duplicates} duplicata(s)/ja existente(s)`);
 
-  return { persisted: inserted, duplicates: Math.max(0, results.length - inserted) };
+  return { persisted: inserted, duplicates };
 }
 
 // ---------------------------------------------------------------------------
@@ -522,6 +548,7 @@ async function persistSearchResults(db, results) {
 // ---------------------------------------------------------------------------
 
 async function crawlQuery(env, query) {
+  console.log(`[crawl] "${query}" - disparando pinterest + valueserp em paralelo`);
   const [pinterest, valueserp] = await Promise.allSettled([
     searchPinterest({
       query, limit: 100, allPages: true,
@@ -549,7 +576,9 @@ async function crawlQuery(env, query) {
   if (valueserp.status === 'fulfilled') { collected.push(...valueserp.value.results); diagnostics.valueserp = valueserp.value.diagnostics ?? { configured: valueserp.value.configured }; }
   else diagnostics.valueserp = { error: valueserp.reason?.message || 'valueserp_failed' };
 
-  return { ranked: rankAndFilter(collected), diagnostics };
+  const ranked = rankAndFilter(collected);
+  console.log(`[crawl] "${query}" - coletados ${collected.length} bruto(s) -> ${ranked.length} apos rank/dedupe`);
+  return { ranked, diagnostics };
 }
 
 const DEFAULT_TRACKED_QUERIES_LIMIT = 5;
@@ -594,7 +623,8 @@ async function runCrawlCycle(env) {
 }
 
 export default {
-  async scheduled(_event, env, ctx) {
+  async scheduled(event, env, ctx) {
+    console.log(`[worker] cron disparado (cron="${event.cron}")`);
     ctx.waitUntil(runCrawlCycle(env));
   },
 
@@ -603,8 +633,10 @@ export default {
     if (url.pathname === '/run') {
       const providedKey = request.headers.get('x-admin-key') || url.searchParams.get('key');
       if (!env.WORKER_ADMIN_KEY || providedKey !== env.WORKER_ADMIN_KEY) {
+        console.warn('[worker] /run chamado com chave invalida ou ausente');
         return new Response('unauthorized', { status: 401 });
       }
+      console.log('[worker] /run disparado manualmente');
       // Deriva as queries e RESPONDE NA HORA com a lista - não espera o
       // ciclo inteiro terminar (pode levar minutos: N queries x 2
       // providers x varias paginas, sequencial). O processamento roda em
