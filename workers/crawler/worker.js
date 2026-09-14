@@ -663,9 +663,13 @@ async function processNextInQueue(env) {
   }
 }
 
+// Loga em TODA invocação - confirma na hora, sem adivinhar, se o código
+// que está rodando é o que você acabou de colar. Bumped a cada mudança.
+const WORKER_VERSION = 'v3-fila-1-por-vez-2026-09-13';
+
 export default {
   async scheduled(event, env, ctx) {
-    console.log(`[worker] cron disparado (cron="${event.cron}")`);
+    console.log(`[worker] versao=${WORKER_VERSION} - cron disparado (cron="${event.cron}")`);
     ctx.waitUntil(processNextInQueue(env));
   },
 
@@ -677,14 +681,14 @@ export default {
         console.warn('[worker] /run chamado com chave invalida ou ausente');
         return new Response('unauthorized', { status: 401 });
       }
-      console.log('[worker] /run disparado manualmente');
+      console.log(`[worker] versao=${WORKER_VERSION} - /run disparado manualmente`);
       // Processa UM item da fila e ESPERA terminar antes de responder -
       // diferente da versão anterior, não depende de waitUntil sobreviver
       // além da resposta. Uma unica query (2 paginas por provider, no
       // maximo) termina em segundos, bem dentro do tempo que uma resposta
       // HTTP normal aguenta.
       const result = await processNextInQueue(env);
-      return new Response(JSON.stringify({ processed: result }, null, 2), {
+      return new Response(JSON.stringify({ version: WORKER_VERSION, processed: result }, null, 2), {
         headers: { 'content-type': 'application/json' }
       });
     }
@@ -695,6 +699,6 @@ export default {
       ).all();
       return new Response(JSON.stringify({ queue: results }, null, 2), { headers: { 'content-type': 'application/json' } });
     }
-    return new Response('croche-search-crawler worker ok', { status: 200 });
+    return new Response(`croche-search-crawler worker ok - versao=${WORKER_VERSION}`, { status: 200 });
   }
 };
