@@ -550,7 +550,20 @@ async function persistSearchResults(db, results) {
 // ---------------------------------------------------------------------------
 
 async function crawlQuery(env, query) {
-  console.log(`[crawl] "${query}" - disparando pinterest + valueserp em paralelo`);
+  const dailyLimit = Number(env.VALUESERP_DAILY_LIMIT || DEFAULT_VALUESERP_DAILY_LIMIT);
+  const usedToday = await getValueSerpUsageToday(env.DB);
+  const remaining = Math.max(0, dailyLimit - usedToday);
+  const valueSerpAllowed = remaining > 0;
+  // Em vez de só permitir/bloquear a query inteira, o maxPages desta chamada
+  // fica limitado ao que ainda resta do teto diario - garante um corte
+  // exato (nunca ultrapassa dailyLimit), em vez de arriscar passar até
+  // VALUESERP_MAX_PAGES-1 chamadas do teto na query que cruza a linha.
+  const valueSerpMaxPages = Math.min(Number(env.VALUESERP_MAX_PAGES || 2), remaining);
+  if (!valueSerpAllowed) {
+    console.warn(`[valueserp] teto diario atingido (${usedToday}/${dailyLimit}) - pulando ValueSerp para "${query}", so Pinterest`);
+  }
+
+  console.log(`[crawl] "${query}" - disparando pinterest${valueSerpAllowed ? ` + valueserp (max ${valueSerpMaxPages} pagina(s) restante(s) do teto)` : ' (valueserp pulado - teto diario)'} em paralelo`);
   const [pinterest, valueserp] = await Promise.allSettled([
     searchPinterest({
       query, limit: 100, allPages: true,
@@ -558,25 +571,34 @@ async function crawlQuery(env, query) {
       baseUrl: env.PINTEREST_BASE_URL || 'https://www.pinterest.com',
       timeoutMs: Number(env.PINTEREST_TIMEOUT_MS || 10000)
     }),
-    searchValueSerp({
-      query, allPages: true,
-      maxPages: Number(env.VALUESERP_MAX_PAGES || 2),
-      searchType: env.VALUESERP_SEARCH_TYPE || 'images',
-      apiKey: env.VALUESERP_API_KEY,
-      googleDomain: env.VALUESERP_GOOGLE_DOMAIN || 'google.com.br',
-      gl: env.VALUESERP_GL || 'br',
-      hl: env.VALUESERP_HL || 'pt-br',
-      timePeriod: env.VALUESERP_TIME_PERIOD || 'last_month',
-      timeoutMs: Number(env.VALUESERP_TIMEOUT_MS || 10000)
-    })
+    valueSerpAllowed
+      ? searchValueSerp({
+          query, allPages: true,
+          maxPages: valueSerpMaxPages,
+          searchType: env.VALUESERP_SEARCH_TYPE || 'images',
+          apiKey: env.VALUESERP_API_KEY,
+          googleDomain: env.VALUESERP_GOOGLE_DOMAIN || 'google.com.br',
+          gl: env.VALUESERP_GL || 'br',
+          hl: env.VALUESERP_HL || 'pt-br',
+          timePeriod: env.VALUESERP_TIME_PERIOD || 'last_month',
+          timeoutMs: Number(env.VALUESERP_TIMEOUT_MS || 10000)
+        })
+      : Promise.resolve({ configured: false, results: [], diagnostics: { reason: 'daily_limit_reached', pagesRequested: 0 } })
   ]);
 
   const collected = [];
   const diagnostics = {};
   if (pinterest.status === 'fulfilled') { collected.push(...pinterest.value.results); diagnostics.scraping = pinterest.value.diagnostics; }
   else diagnostics.scraping = { error: pinterest.reason?.message || 'pinterest_failed' };
-  if (valueserp.status === 'fulfilled') { collected.push(...valueserp.value.results); diagnostics.valueserp = valueserp.value.diagnostics ?? { configured: valueserp.value.configured }; }
-  else diagnostics.valueserp = { error: valueserp.reason?.message || 'valueserp_failed' };
+  if (valueserp.status === 'fulfilled') {
+    collected.push(...valueserp.value.results);
+    diagnostics.valueserp = valueserp.value.diagnostics ?? { configured: valueserp.value.configured };
+    const callsMade = Number(valueserp.value.diagnostics?.pagesRequested || 0);
+    await addValueSerpUsage(env.DB, callsMade);
+    if (callsMade) console.log(`[valueserp] consumo registrado: +${callsMade} chamada(s) - total hoje: ${usedToday + callsMade}/${dailyLimit}`);
+  } else {
+    diagnostics.valueserp = { error: valueserp.reason?.message || 'valueserp_failed' };
+  }
 
   const ranked = rankAndFilter(collected);
   console.log(`[crawl] "${query}" - coletados ${collected.length} bruto(s) -> ${ranked.length} apos rank/dedupe`);
@@ -598,6 +620,7 @@ async function crawlQuery(env, query) {
 
 const DEFAULT_TRACKED_QUERIES_LIMIT = 5;
 const MAX_TRACKED_QUERIES_LIMIT = 20; // teto de segurança, mesmo se a var de ambiente vier absurda
+const DEFAULT_VALUESERP_DAILY_LIMIT = 200;
 
 let queueSchemaReady = false;
 
@@ -610,7 +633,26 @@ async function ensureQueueSchema(db) {
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     processed_at TEXT
   )`).run();
+  await db.prepare(`CREATE TABLE IF NOT EXISTS VALUESERP_USAGE (
+    day TEXT PRIMARY KEY,
+    calls INTEGER NOT NULL DEFAULT 0
+  )`).run();
   queueSchemaReady = true;
+}
+
+function todayKey() {
+  return new Date().toISOString().slice(0, 10); // YYYY-MM-DD (UTC)
+}
+
+async function getValueSerpUsageToday(db) {
+  const { results } = await db.prepare('SELECT calls FROM VALUESERP_USAGE WHERE day = ?').bind(todayKey()).all();
+  return Number(results?.[0]?.calls || 0);
+}
+
+async function addValueSerpUsage(db, calls) {
+  if (!calls) return;
+  await db.prepare(`INSERT INTO VALUESERP_USAGE (day, calls) VALUES (?, ?)
+    ON CONFLICT(day) DO UPDATE SET calls = calls + excluded.calls`).bind(todayKey(), calls).run();
 }
 
 async function refillQueue(env) {
@@ -665,7 +707,7 @@ async function processNextInQueue(env) {
 
 // Loga em TODA invocação - confirma na hora, sem adivinhar, se o código
 // que está rodando é o que você acabou de colar. Bumped a cada mudança.
-const WORKER_VERSION = 'v3-fila-1-por-vez-2026-09-13';
+const WORKER_VERSION = 'v4-teto-diario-valueserp-2026-09-13';
 
 export default {
   async scheduled(event, env, ctx) {
@@ -697,7 +739,12 @@ export default {
       const { results } = await env.DB.prepare(
         `SELECT status, COUNT(*) as total FROM CRAWL_QUEUE GROUP BY status`
       ).all();
-      return new Response(JSON.stringify({ queue: results }, null, 2), { headers: { 'content-type': 'application/json' } });
+      const usedToday = await getValueSerpUsageToday(env.DB);
+      const dailyLimit = Number(env.VALUESERP_DAILY_LIMIT || DEFAULT_VALUESERP_DAILY_LIMIT);
+      return new Response(JSON.stringify({
+        queue: results,
+        valueserp: { usedToday, dailyLimit, day: todayKey() }
+      }, null, 2), { headers: { 'content-type': 'application/json' } });
     }
     return new Response(`croche-search-crawler worker ok - versao=${WORKER_VERSION}`, { status: 200 });
   }

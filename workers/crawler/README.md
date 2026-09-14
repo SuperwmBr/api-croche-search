@@ -80,6 +80,21 @@ nada no código da API grava nela hoje. Em vez de depender disso,
 (`MAX_TRACKED_QUERIES_LIMIT`), mesmo que a variável de ambiente venha
 configurada com um valor maior por engano.
 
+## Teto diário de chamadas ao ValueSerp
+
+`VALUESERP_DAILY_LIMIT` (default 200) é um teto **exato**, não uma
+estimativa: uma tabela `VALUESERP_USAGE` no D1 conta quantas chamadas reais
+foram feitas hoje, e cada consulta recebe dinamicamente `maxPages =
+min(VALUESERP_MAX_PAGES, restante_do_teto)` — a última chamada do dia é
+naturalmente cortada para caber exatamente no que sobra, em vez de arriscar
+ultrapassar. Quando o teto é atingido, as queries seguintes do dia buscam só
+no Pinterest (o ValueSerp é pulado, não falha). O contador zera sozinho à
+meia-noite UTC (chave por data). Veja o consumo do dia em `/queue`.
+
+Isso é independente da frequência do cron — não importa se você roda a cada
+2 minutos ou a cada hora, o total de chamadas ao ValueSerp naquele dia nunca
+passa do configurado.
+
 ## Deploy
 
 ```bash

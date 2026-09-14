@@ -28,6 +28,7 @@ VALUESERP_TIME_PERIOD = "last_month"
 VALUESERP_MAX_PAGES = "2"
 VALUESERP_TIMEOUT_MS = "10000"
 TRACKED_QUERIES_LIMIT = "5"
+VALUESERP_DAILY_LIMIT = "200"
 
 # Segredos - NUNCA colocar aqui. Configurar via:
 #   wrangler secret put VALUESERP_API_KEY
