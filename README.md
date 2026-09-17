@@ -29,6 +29,8 @@ O parâmetro `provedor` (ou `provider`) permite escolher o mecanismo usado:
 - `scraping`: leitura direta de resultados do Pinterest pelo fluxo de `BaseSearchResource`, inspirado no projeto `crochet-chart-scraping`;
 - `mix`: dispara `scraping` (Pinterest) e `valueserp` em paralelo na mesma requisição e devolve o resultado unificado, já ranqueado e deduplicado junto. Diferente de `provedor=scraping` sozinho, o `mix` não usa o fluxo de crawl em segundo plano (bookmark persistido em `SEARCH_CRAWL_JOBS`) — cada chamada busca as páginas do Pinterest de forma síncrona, limitada por `lote_paginas`/`max_paginas`, exatamente como o ValueSerp.
 
+Com `provedor=auto` (o padrão), passar `incluir_valueserp=1` SOMA o ValueSerp aos demais provedores do `auto` (D1 + YouTube + SearXNG + Meilisearch), em vez de substituí-los como `provedor=valueserp`/`mix` fazem. Pensado para pesquisa manual do usuário (uma expressão digitada e enviada explicitamente) — não deve ser usado para a carga de um acervo completo/feed, já que soma custo por chamada. Sujeito ao mesmo teto diário (`VALUESERP_DAILY_LIMIT`, tabela `VALUESERP_USAGE` no D1) já usado pelo worker de crawl em `workers/crawler`: o orçamento é compartilhado entre os dois. Se o teto do dia já foi consumido, o ValueSerp aparece como `not_configured` (`providerDetails.valueserp.reason = "daily_limit_reached"`) e a busca segue normalmente com os demais provedores — nunca quebra a requisição.
+
 Exemplos:
 
 ```text
@@ -36,6 +38,7 @@ GET /api/busca?q=icroche+grafico+de+croche&provedor=valueserp&fonte=web&todas_pa
 GET /api/busca?q=grafico+de+croche&provedor=scraping&fonte=pinterest&todas_paginas=1
 GET /api/busca?q=flor+de+croche&provedor=valueserp&valueserp_tipo=images&max_paginas=100
 GET /api/busca?q=grafico+de+croche&provedor=mix&todas_paginas=1&limit=50
+GET /api/busca?q=biquini+de+croche&incluir_valueserp=1
 ```
 
 Para o ValueSerp, `todas_paginas=1` é o padrão. **Se `max_paginas` não for informado, a API usa `VALUESERP_SYNC_DEFAULT_MAX_PAGES` (5 por padrão) em vez de `VALUESERP_MAX_PAGES` (100)** — isso evita que uma chamada síncrona (via `provedor=valueserp` ou `provedor=mix`) percorra 100 páginas sequenciais na mesma requisição HTTP e estoure o gateway timeout do Cloudflare (504) bem antes do timeout interno (`VALUESERP_TOTAL_TIMEOUT_MS`, 120s por padrão). Para buscar mais páginas, informe `max_paginas` explicitamente (até 100) — nesse caso a requisição pode demorar bastante e é sua responsabilidade garantir que o proxy na frente aguente esse tempo. A chave deve ficar somente no ambiente do servidor, em `VALUESERP_API_KEY`.

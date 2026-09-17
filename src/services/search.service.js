@@ -8,6 +8,7 @@ import { searchYouTube } from '../providers/youtube/youtube.provider.js';
 import { searchSearxng } from '../providers/searxng/searxng.provider.js';
 import { searchMeilisearch } from '../providers/meilisearch/meilisearch.provider.js';
 import { searchValueSerp } from '../providers/valueserp/valueserp.provider.js';
+import { valueSerpRemainingBudget, addValueSerpUsage } from './valueserp-usage.service.js';
 import { searchPinterest } from '../providers/pinterest/pinterest.provider.js';
 import { persistSearchResults } from '../persistence/search-results.persistence.js';
 import { getPinterestCrawlResults, preparePinterestCrawl, claimPinterestCrawl, savePinterestCrawlBatch, failPinterestCrawl } from '../persistence/pinterest-crawl.persistence.js';
@@ -40,6 +41,34 @@ function buildValueSerpCall(params, query) {
     searchType: params.valueserp_tipo || 'images',
     signal: timeoutSignal(env.valueserpTotalTimeoutMs)
   });
+}
+
+// Variante usada só dentro do modo 'auto' (params.incluir_valueserp=1),
+// pensada para pesquisa manual do usuário: diferente de provedor=valueserp
+// (que sempre chama), aqui o teto diário compartilhado com o worker de
+// crawl é checado ANTES de cada chamada — se já foi consumido, o ValueSerp
+// é pulado nesta busca (sem erro, sem quebrar os demais provedores do
+// auto), exatamente como o worker já faz. maxPages fica limitado ao que
+// ainda resta do teto, nunca ultrapassando o orçamento diário.
+function buildValueSerpAutoCall(params, query) {
+  return async () => {
+    const remaining = await valueSerpRemainingBudget();
+    if (remaining <= 0) {
+      return { configured: false, results: [], diagnostics: { reason: 'daily_limit_reached' } };
+    }
+    const outcome = await searchValueSerp({
+      query,
+      limit: params.limit,
+      page: 1,
+      allPages: true,
+      maxPages: Math.min(params.max_paginas || env.valueserpSyncDefaultMaxPages, remaining),
+      searchType: params.valueserp_tipo || 'images',
+      signal: timeoutSignal(env.valueserpTotalTimeoutMs)
+    });
+    const callsMade = Number(outcome.diagnostics?.pagesRequested || 0);
+    await addValueSerpUsage(callsMade);
+    return outcome;
+  };
 }
 
 function buildPinterestCall(params, query, crawlContext) {
@@ -90,12 +119,17 @@ function buildCalls(params, variants, offset, crawlContext = null) {
 
   if (!params.fonte?.length) {
     if (provider === 'searxng') return { searxng: buildSearxngCall(params, query, variants) };
-    return {
+    const auto = {
       internal: () => searchInternal({ query, limit: params.limit, offset, signal: timeoutSignal(env.SEARCH_PROVIDER_TIMEOUT_MS) }).then((results) => ({ configured: env.d1Configured, results })),
       youtube: () => searchYouTube({ query, limit: params.limit, signal: timeoutSignal(env.SEARCH_PROVIDER_TIMEOUT_MS) }),
       searxng: buildSearxngCall(params, query, variants),
       meilisearch: () => searchMeilisearch({ query, limit: params.limit, offset, filters, signal: timeoutSignal(env.MEILISEARCH_TIMEOUT_MS) })
     };
+    // Aditivo, não substitui nada acima — só entra com incluir_valueserp=1
+    // explícito (pensado pra pesquisa manual; a carga de acervo completo
+    // não deve mandar esse parâmetro). Ver buildValueSerpAutoCall.
+    if (provider === 'auto' && params.incluir_valueserp) auto.valueserp = buildValueSerpAutoCall(params, query);
+    return auto;
   }
 
   return Object.fromEntries(params.fonte.map((source) => {

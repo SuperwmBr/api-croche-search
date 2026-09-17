@@ -52,3 +52,106 @@ test('provedor scraping retorna todos os resultados quando todas_paginas está a
     env.d1Configured = originalD1Configured;
   }
 });
+
+test('modo auto NAO chama ValueSerp por padrão (incluir_valueserp ausente)', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalD1Configured = env.d1Configured;
+  const originalApiKey = env.valueserpApiKey;
+  env.d1Configured = false;
+  env.valueserpApiKey = 'chave-de-teste';
+  let valueserpChamado = false;
+  globalThis.fetch = async (url) => {
+    if (String(url).includes('valueserp.com')) { valueserpChamado = true; return { ok: true, status: 200, json: async () => ({ image_results: [] }) }; }
+    return { ok: false, status: 503, json: async () => ({}) };
+  };
+
+  try {
+    const output = await search({
+      q: 'biquini', page: 1, limit: 20, limit_por_fonte: 20,
+      provedor: 'auto', provider: undefined, todas_paginas: true,
+      max_paginas: undefined, tipo: undefined, fonte: undefined,
+      idioma: undefined, nivel: undefined, tecnica: undefined, material: undefined,
+      duracao_maxima: undefined, data_inicio: undefined, data_fim: undefined,
+      sort: 'relevancia', safe_search: '1', incluir_valueserp: false
+    });
+    assert.equal(valueserpChamado, false);
+    assert.equal('valueserp' in output.providers, false);
+  } finally {
+    globalThis.fetch = originalFetch;
+    env.d1Configured = originalD1Configured;
+    env.valueserpApiKey = originalApiKey;
+  }
+});
+
+test('modo auto soma o ValueSerp quando incluir_valueserp=1 (pesquisa manual)', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalD1Configured = env.d1Configured;
+  const originalApiKey = env.valueserpApiKey;
+  env.d1Configured = false;
+  env.valueserpApiKey = 'chave-de-teste';
+  globalThis.fetch = async (url) => {
+    if (String(url).includes('valueserp.com')) {
+      return {
+        ok: true, status: 200,
+        json: async () => ({ image_results: [{ position: 1, title: 'Biquíni de crochê', link: 'https://exemplo.com/biquini-croche', image: 'https://exemplo.com/biquini-croche.jpg', source: 'exemplo.com' }] })
+      };
+    }
+    return { ok: false, status: 503, json: async () => ({}) };
+  };
+
+  try {
+    const output = await search({
+      q: 'biquini', page: 1, limit: 20, limit_por_fonte: 20,
+      provedor: 'auto', provider: undefined, todas_paginas: true,
+      max_paginas: undefined, tipo: undefined, fonte: undefined,
+      idioma: undefined, nivel: undefined, tecnica: undefined, material: undefined,
+      duracao_maxima: undefined, data_inicio: undefined, data_fim: undefined,
+      sort: 'relevancia', safe_search: '1', incluir_valueserp: true
+    });
+    assert.equal(output.providers.valueserp, 'ok');
+    assert.ok(output.results.some((item) => item.origin === 'exemplo.com' || item.url === 'https://exemplo.com/biquini-croche'));
+  } finally {
+    globalThis.fetch = originalFetch;
+    env.d1Configured = originalD1Configured;
+    env.valueserpApiKey = originalApiKey;
+  }
+});
+
+test('modo auto pula o ValueSerp sem quebrar a busca quando o teto diário já foi atingido', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalD1Configured = env.d1Configured;
+  const originalApiKey = env.valueserpApiKey;
+  const originalDailyLimit = env.valueserpDailyLimit;
+  env.d1Configured = true;
+  env.valueserpApiKey = 'chave-de-teste';
+  env.valueserpDailyLimit = 5;
+  let valueserpChamado = false;
+  globalThis.fetch = async (url, init) => {
+    if (String(url).includes('valueserp.com')) { valueserpChamado = true; return { ok: true, status: 200, json: async () => ({ image_results: [] }) }; }
+    if (String(url).includes('cloudflare.com')) {
+      const body = init?.body ? JSON.parse(init.body) : {};
+      if (String(body.sql || '').includes('SELECT calls')) return { ok: true, status: 200, json: async () => ({ success: true, result: [{ results: [{ calls: 5 }] }] }) };
+      return { ok: true, status: 200, json: async () => ({ success: true, result: [{ results: [] }] }) };
+    }
+    return { ok: false, status: 503, json: async () => ({}) };
+  };
+
+  try {
+    const output = await search({
+      q: 'biquini teto atingido', page: 1, limit: 20, limit_por_fonte: 20,
+      provedor: 'auto', provider: undefined, todas_paginas: true,
+      max_paginas: undefined, tipo: undefined, fonte: undefined,
+      idioma: undefined, nivel: undefined, tecnica: undefined, material: undefined,
+      duracao_maxima: undefined, data_inicio: undefined, data_fim: undefined,
+      sort: 'relevancia', safe_search: '1', incluir_valueserp: true
+    });
+    assert.equal(valueserpChamado, false);
+    assert.equal(output.providers.valueserp, 'not_configured');
+    assert.equal(output.providerDetails.valueserp?.reason, 'daily_limit_reached');
+  } finally {
+    globalThis.fetch = originalFetch;
+    env.d1Configured = originalD1Configured;
+    env.valueserpApiKey = originalApiKey;
+    env.valueserpDailyLimit = originalDailyLimit;
+  }
+});

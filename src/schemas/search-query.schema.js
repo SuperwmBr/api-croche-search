@@ -34,5 +34,11 @@ export const searchQuerySchema = z.object({
   valueserp_tipo: z.enum(['images', 'search', 'news', 'shopping']).optional(),
   max_paginas: z.coerce.number().int().min(1).max(100).optional(),
   lote_paginas: z.coerce.number().int().min(1).max(10).optional(),
-  pinterest_bookmark: z.string().trim().min(1).max(4096).optional()
+  pinterest_bookmark: z.string().trim().min(1).max(4096).optional(),
+  // Só tem efeito com provedor=auto (o padrão): soma o ValueSerp aos demais
+  // provedores da busca automática, em vez de substituí-los como
+  // provedor=valueserp/mix fazem. Pensado para pesquisa manual do usuário
+  // (uma expressão digitada), não para varreduras de acervo completo —
+  // sujeito ao teto diário compartilhado (ver valueserp-usage.service.js).
+  incluir_valueserp: z.enum(['0', '1']).transform((value) => value === '1').default(false)
 });
