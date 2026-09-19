@@ -217,22 +217,39 @@ export async function search(params) {
   const settled = await Promise.allSettled(names.map((name) => calls[name]()));
   const providers = {};
   const providerDetails = {};
+  const providerCounts = {};
   const grouped = {};
 
   settled.forEach((outcome, index) => {
     const name = names[index];
     if (outcome.status === 'rejected') {
       providers[name] = outcome.reason?.name === 'TimeoutError' ? 'timeout' : 'error';
-      providerDetails[name] = { error: outcome.reason?.message ?? 'provider_failed' };
+      providerDetails[name] = { error: outcome.reason?.message ?? 'provider_failed', rawResults: 0, matchedResults: 0, acceptedResults: 0, returnedResults: 0 };
+      providerCounts[name] = { fetched: 0, accepted: 0, returned: 0, discarded: 0 };
       grouped[name] = [];
     } else if (!outcome.value.configured) {
       providers[name] = 'not_configured';
       providerDetails[name] = outcome.value.diagnostics ?? null;
+      providerCounts[name] = { fetched: 0, accepted: 0, returned: 0, discarded: 0 };
       grouped[name] = [];
     } else {
+      const fetched = Array.isArray(outcome.value.results) ? outcome.value.results.length : 0;
       providers[name] = outcome.value.partial ? 'partial' : 'ok';
-      providerDetails[name] = outcome.value.diagnostics ?? null;
       grouped[name] = rankAndFilter(outcome.value.results, params.tipo);
+      const accepted = grouped[name].length;
+      providerDetails[name] = {
+        ...(outcome.value.diagnostics ?? {}),
+        rawResults: outcome.value.diagnostics?.rawResults ?? fetched,
+        matchedResults: outcome.value.diagnostics?.matchedResults ?? accepted,
+        acceptedResults: accepted,
+        returnedResults: 0,
+      };
+      providerCounts[name] = {
+        fetched,
+        accepted,
+        returned: 0,
+        discarded: Math.max(0, fetched - accepted),
+      };
     }
   });
 
@@ -252,6 +269,15 @@ export async function search(params) {
   } else {
     results = returnAllFetched ? allFetched : allFetched.slice(0, params.limit);
     sourceCounts = results.reduce((counts, item) => ({ ...counts, [item.origin]: (counts[item.origin] ?? 0) + 1 }), {});
+  }
+
+  const returnedKeys = new Set(results.map((item) => item.id || item.url));
+  for (const [name, items] of Object.entries(grouped)) {
+    const returned = items.filter((item) => returnedKeys.has(item.id || item.url)).length;
+    if (providerCounts[name]) providerCounts[name].returned = returned;
+    if (providerDetails[name] && typeof providerDetails[name] === 'object') {
+      providerDetails[name].returnedResults = returned;
+    }
   }
 
   let persistence = { configured: env.d1Configured, persisted: 0, duplicates: 0, canonicalUrls: [] };
