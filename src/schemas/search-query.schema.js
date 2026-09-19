@@ -24,7 +24,7 @@ export const searchQuerySchema = z.object({
   data_inicio: z.coerce.date().optional(),
   data_fim: z.coerce.date().optional(),
   page: z.coerce.number().int().min(1).default(1),
-  limit: z.coerce.number().int().min(1).max(100).default(20),
+  limit: z.coerce.number().int().min(1).max(250).default(20),
   limit_por_fonte: z.coerce.number().int().min(1).max(100).default(20),
   sort: z.enum(['relevancia', 'recente', 'popular']).default('relevancia'),
   safe_search: z.enum(['0', '1', '2']).default('1'),
