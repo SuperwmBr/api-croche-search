@@ -228,13 +228,20 @@ export async function search(params) {
       providerCounts[name] = { fetched: 0, accepted: 0, returned: 0, discarded: 0 };
       grouped[name] = [];
     } else if (!outcome.value.configured) {
-      providers[name] = 'not_configured';
-      providerDetails[name] = outcome.value.diagnostics ?? null;
+      const diagnostics = outcome.value.diagnostics ?? {};
+      const reason = String(diagnostics.reason || '').toLowerCase();
+      const status = reason === 'daily_limit_reached'
+        ? 'quota_exhausted'
+        : reason.includes('api_key') || reason.includes('ausente')
+          ? 'not_configured'
+          : 'skipped';
+      providers[name] = status;
+      providerDetails[name] = { ...diagnostics, status };
       providerCounts[name] = { fetched: 0, accepted: 0, returned: 0, discarded: 0 };
       grouped[name] = [];
     } else {
       const fetched = Array.isArray(outcome.value.results) ? outcome.value.results.length : 0;
-      providers[name] = outcome.value.partial ? 'partial' : 'ok';
+      providers[name] = outcome.value.partial ? 'partial' : fetched === 0 ? 'empty' : 'ok';
       grouped[name] = rankAndFilter(outcome.value.results, params.tipo);
       const accepted = grouped[name].length;
       providerDetails[name] = {
@@ -260,6 +267,7 @@ export async function search(params) {
   const returnAllFetched = params.todas_paginas && ['scraping', 'valueserp', 'mix'].includes(provider);
   const selectedProviderDetails = providerDetails[provider] || {};
   const providerFailed = Object.values(providers).some(isProviderFailure);
+  const providerSkipped = Object.values(providers).some((status) => status === 'quota_exhausted' || status === 'skipped');
   let results;
   let sourceCounts;
   if (params.fonte?.length && provider === 'auto') {
@@ -332,7 +340,7 @@ export async function search(params) {
     limitMode: returnAllFetched ? 'all_pages' : params.fonte?.length ? 'per_source' : 'total',
     allPages: returnAllFetched,
     collectionComplete: crawlJob ? crawlJob.status === 'complete' : !providerFailed && !selectedProviderDetails.hasMore,
-    partial: providerFailed || Boolean(persistence.error),
+    partial: providerFailed || providerSkipped || Boolean(persistence.error),
     providers,
     providerCounts,
     providerDetails: publicProviderDetails,
