@@ -45,6 +45,9 @@ test('provedor scraping retorna todos os resultados quando todas_paginas está a
     assert.equal(output.total, 2);
     assert.equal(output.totalFetched, 2);
     assert.equal(output.results.length, 2);
+    assert.equal(output.providerCounts.scraping.fetched, 2);
+    assert.equal(output.providerCounts.scraping.accepted, 2);
+    assert.equal(output.providerCounts.scraping.returned, 2);
     assert.equal(output.collectionComplete, true);
     assert.equal('nextBookmark' in output, false);
   } finally {
@@ -109,6 +112,8 @@ test('modo auto soma o ValueSerp quando incluir_valueserp=1 (pesquisa manual)', 
       sort: 'relevancia', safe_search: '1', incluir_valueserp: true
     });
     assert.equal(output.providers.valueserp, 'ok');
+    assert.equal(output.providerCounts.valueserp.fetched, 1);
+    assert.equal(output.providerCounts.valueserp.accepted, 1);
     assert.ok(output.results.some((item) => item.origin === 'exemplo.com' || item.url === 'https://exemplo.com/biquini-croche'));
   } finally {
     globalThis.fetch = originalFetch;
