@@ -151,7 +151,7 @@ test('modo auto pula o ValueSerp sem quebrar a busca quando o teto diário já f
       sort: 'relevancia', safe_search: '1', incluir_valueserp: true
     });
     assert.equal(valueserpChamado, false);
-    assert.equal(output.providers.valueserp, 'not_configured');
+    assert.equal(output.providers.valueserp, 'quota_exhausted');
     assert.equal(output.providerDetails.valueserp?.reason, 'daily_limit_reached');
   } finally {
     globalThis.fetch = originalFetch;
