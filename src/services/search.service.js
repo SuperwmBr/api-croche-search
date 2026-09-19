@@ -16,7 +16,8 @@ import { enqueuePinterestCrawl } from './pinterest-crawl.service.js';
 import { buildSourceQueries, categoriesForSource } from '../classification/source.js';
 import { env } from '../config/env.js';
 
-const cacheKey = (params) => createHash('sha256').update(JSON.stringify(params)).digest('hex');
+const SEARCH_CACHE_VERSION = 'v2';
+const cacheKey = (params) => createHash('sha256').update(JSON.stringify({ version: SEARCH_CACHE_VERSION, ...params })).digest('hex');
 const timeoutSignal = (ms) => AbortSignal.timeout(ms);
 const isProviderFailure = (status) => status === 'error' || status === 'timeout' || status === 'partial';
 const CROCHET_CONFIDENCE_THRESHOLD = 0.5;
@@ -190,7 +191,10 @@ function storedCrawlPayload(params, variants, job, results, startedAt) {
 export async function search(params) {
   const key = cacheKey(params);
   const cached = memoryCache.get(key);
-  if (cached) return { ...cached, cache: { layer: 'memory', hit: true } };
+  if (cached && !cached.partial) return { ...cached, cache: { layer: 'memory', hit: true } };
+  // Nunca reaproveitar resultado parcial ou com erro. Isso evita perpetuar
+  // um diagnóstico antigo de D1 depois que o schema ou a configuração foi corrigida.
+  if (cached) memoryCache.delete(key);
 
   const startedAt = performance.now();
   const graphFocused = params.tipo?.includes('grafico');
@@ -352,6 +356,6 @@ export async function search(params) {
     cache: { layer: null, hit: false }
   };
 
-  if (!crawlJob || crawlJob.status === 'complete') memoryCache.set(key, payload);
+  if (!payload.partial && (!crawlJob || crawlJob.status === 'complete')) memoryCache.set(key, payload);
   return payload;
 }
