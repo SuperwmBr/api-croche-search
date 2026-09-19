@@ -120,3 +120,8 @@ A presença de uma fonte não garante 20 resultados: Instagram e TikTok dependem
 ## Segurança
 
 Nunca versionar `.env`. Tokens do Cloudflare e YouTube permanecem exclusivamente no servidor.
+## Paginação e diagnóstico por provedor
+
+A resposta mantém o campo `providers` com estados compatíveis, mas também informa `providerCounts` por fonte, com `fetched`, `accepted`, `returned` e `discarded`. Em `providerDetails`, os campos `rawResults`, `matchedResults`, `acceptedResults`, `returnedResults` e `hasMore` ajudam a identificar em que etapa os itens foram reduzidos.
+
+O campo `hasMore` indica se existe uma próxima página. O endpoint usa `page` e `limit` para paginação, com até 100 itens por lote. A consulta interna do D1 é tokenizada e ordenada por qualidade, data e ID estável, permitindo que o cliente carregue lotes sucessivos sem esconder registros já persistidos.
