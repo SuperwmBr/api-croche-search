@@ -24,10 +24,10 @@ export async function searchInternal({ query, limit, offset, signal }) {
   params.push(limit, offset);
 
   const result = await queryD1(
-    `SELECT id, type, source, title, description, url, image_url, author, language, published_at, tags_json, source_quality
+    `SELECT id, type, source, title, description, url, image_url, author, language, published_at, tags_json
      FROM SEARCH_RESULTS
      WHERE status = 'active' AND (${condicoes.join(' OR ')})
-     ORDER BY source_quality DESC, published_at DESC, id DESC
+     ORDER BY published_at DESC, id DESC
      LIMIT ? OFFSET ?`,
     params,
     { signal },
@@ -44,6 +44,6 @@ export async function searchInternal({ query, limit, offset, signal }) {
     id: `internal:${row.id}`, externalId: String(row.id), type: detectType(row.url, row.type), origin: 'internal', title: row.title,
     description: row.description, url: row.url, image: row.image_url, author: row.author, language: row.language,
     publishedAt: row.published_at, tags: JSON.parse(row.tags_json || '[]'), level: null,
-    materials: [], rankingSignals: { textualRelevance: 0.75, sourceQuality: row.source_quality ?? 0.7, crochetConfidence: 1, freshness: 0.5, engagement: 0.3, completeness: 0.7 }
+    materials: [], rankingSignals: { textualRelevance: 0.75, sourceQuality: 0.7, crochetConfidence: 1, freshness: 0.5, engagement: 0.3, completeness: 0.7 }
   }));
 }
