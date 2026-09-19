@@ -243,6 +243,9 @@ export async function search(params) {
         matchedResults: outcome.value.diagnostics?.matchedResults ?? accepted,
         acceptedResults: accepted,
         returnedResults: 0,
+        hasMore: typeof outcome.value.diagnostics?.hasMore === 'boolean'
+          ? outcome.value.diagnostics.hasMore
+          : fetched >= (params.fonte?.length ? params.limit_por_fonte : params.limit),
       };
       providerCounts[name] = {
         fetched,
@@ -322,6 +325,8 @@ export async function search(params) {
     requestedProvider: provider,
     total: results.length,
     totalFetched: allFetched.length,
+    hasMore: Object.values(providerDetails).some((details) => details?.hasMore === true),
+    nextPage: Object.values(providerDetails).some((details) => details?.hasMore === true) ? params.page + 1 : null,
     page: params.page,
     limit: pageSize,
     limitMode: returnAllFetched ? 'all_pages' : params.fonte?.length ? 'per_source' : 'total',
