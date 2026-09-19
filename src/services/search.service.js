@@ -329,6 +329,7 @@ export async function search(params) {
     collectionComplete: crawlJob ? crawlJob.status === 'complete' : !providerFailed && !selectedProviderDetails.hasMore,
     partial: providerFailed || Boolean(persistence.error),
     providers,
+    providerCounts,
     providerDetails: publicProviderDetails,
     sourceCounts,
     persistence: publicPersistence,
