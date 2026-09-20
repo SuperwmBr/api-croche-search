@@ -18,3 +18,10 @@ test('busca comum preserva a consulta original como primeira variante', () => {
   const variants = expandQuery('bolsa de crochê');
   assert.equal(variants[0], 'bolsa de crochê');
 });
+
+test('entende intenção de mandala para aplique em camisa', () => {
+  const variants = expandQuery('mandala para aplique em camisa crochê crochet chart', 5);
+  assert.equal(variants[0], 'mandala para aplique em camisa crochê crochet chart');
+  assert.ok(variants.includes('mandala crochê aplique camisa'));
+  assert.ok(variants.includes('crochet mandala applique shirt'));
+});
