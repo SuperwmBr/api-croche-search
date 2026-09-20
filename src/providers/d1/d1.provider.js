@@ -96,10 +96,13 @@ async function buscarFts(termos, limit, offset, signal) {
 
   const expressaoAnd = termos.map(escaparFts).join(' AND ');
   const expressaoOr = termos.map(escaparFts).join(' OR ');
-  const baseSelect = `SELECT r.id, r.type, r.source, r.title, r.description, r.url,
-      r.image_url, r.author, r.language, r.published_at, r.tags_json
+  const baseSelect = `SELECT r.id, r.type, r.source, r.title, r.description,
+      COALESCE(NULLIF(r.url,''),su.original_url) AS url,
+      COALESCE(NULLIF(r.image_url,''),su.image_url) AS image_url,
+      r.author, r.language, r.published_at, r.tags_json
     FROM SEARCH_RESULTS_FTS f
     JOIN SEARCH_RESULTS r ON r.id = f.rowid
+    LEFT JOIN SEARCH_URLS su ON su.canonical_url = r.canonical_url
     WHERE r.status = 'active' AND SEARCH_RESULTS_FTS MATCH ?`;
 
   const comTodosOsTermos = await queryD1(
@@ -129,10 +132,14 @@ async function buscarLike(termos, query, limit, offset, signal) {
   params.push(limit, offset);
 
   const result = await queryD1(
-    `SELECT id, type, source, title, description, url, image_url, author, language, published_at, tags_json
-     FROM SEARCH_RESULTS
-     WHERE status = 'active' AND (${condicoes.join(' OR ')})
-     ORDER BY published_at DESC, id DESC
+    `SELECT r.id, r.type, r.source, r.title, r.description,
+       COALESCE(NULLIF(r.url,''),su.original_url) AS url,
+       COALESCE(NULLIF(r.image_url,''),su.image_url) AS image_url,
+       r.author, r.language, r.published_at, r.tags_json
+     FROM SEARCH_RESULTS r
+     LEFT JOIN SEARCH_URLS su ON su.canonical_url = r.canonical_url
+     WHERE r.status = 'active' AND (${condicoes.join(' OR ')})
+     ORDER BY r.published_at DESC, r.id DESC
      LIMIT ? OFFSET ?`,
     params,
     { signal },
