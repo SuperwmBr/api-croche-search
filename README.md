@@ -17,7 +17,7 @@ npm start
 
 Health check: `GET http://127.0.0.1:3200/api/health`
 
-Busca geral: `GET /api/busca?q=amigurumi+para+iniciante`
+Busca geral: `GET /api/busca?q=amigurumi+para+iniciante`\n\nA busca interna do D1 usa FTS5 com ranking textual (bm25) e expansão de intenção para consultas naturais, como objeto, finalidade e peça. Se o recurso FTS5 ainda não estiver disponível no banco, a API usa automaticamente o fallback compatível com LIKE, sem interromper os demais provedores.
 
 ## Provedores de descoberta
 
@@ -29,7 +29,7 @@ O parâmetro `provedor` (ou `provider`) permite escolher o mecanismo usado:
 - `scraping`: leitura direta de resultados do Pinterest pelo fluxo de `BaseSearchResource`, inspirado no projeto `crochet-chart-scraping`;
 - `mix`: dispara `scraping` (Pinterest) e `valueserp` em paralelo na mesma requisição e devolve o resultado unificado, já ranqueado e deduplicado junto. Diferente de `provedor=scraping` sozinho, o `mix` não usa o fluxo de crawl em segundo plano (bookmark persistido em `SEARCH_CRAWL_JOBS`) — cada chamada busca as páginas do Pinterest de forma síncrona, limitada por `lote_paginas`/`max_paginas`, exatamente como o ValueSerp.
 
-Com `provedor=auto` (o padrão), passar `incluir_valueserp=1` SOMA o ValueSerp aos demais provedores do `auto` (D1 + YouTube + SearXNG + Meilisearch), em vez de substituí-los como `provedor=valueserp`/`mix` fazem. Pensado para pesquisa manual do usuário (uma expressão digitada e enviada explicitamente) — não deve ser usado para a carga de um acervo completo/feed, já que soma custo por chamada. Sujeito ao mesmo teto diário (`VALUESERP_DAILY_LIMIT`, tabela `VALUESERP_USAGE` no D1) já usado pelo worker de crawl em `workers/crawler`: o orçamento é compartilhado entre os dois. Se o teto do dia já foi consumido, o ValueSerp aparece como `not_configured` (`providerDetails.valueserp.reason = "daily_limit_reached"`) e a busca segue normalmente com os demais provedores — nunca quebra a requisição.
+Com `provedor=auto` (o padrão), passar `incluir_valueserp=1` SOMA o ValueSerp aos demais provedores do `auto` (D1 + YouTube + SearXNG + Meilisearch), em vez de substituí-los como `provedor=valueserp`/`mix` fazem. Pensado para pesquisa manual do usuário (uma expressão digitada e enviada explicitamente) — não deve ser usado para a carga de um acervo completo/feed, já que soma custo por chamada. Sujeito ao mesmo teto diário (`VALUESERP_DAILY_LIMIT`, tabela `VALUESERP_USAGE` no D1) já usado pelo worker de crawl em `workers/crawler`: o orçamento é compartilhado entre os dois. Se o teto do dia já foi consumido, o ValueSerp aparece como `quota_exhausted` (`providerDetails.valueserp.reason = "daily_limit_reached"`) e a busca segue normalmente com os demais provedores — nunca quebra a requisição.
 
 Exemplos:
 
