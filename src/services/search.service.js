@@ -302,11 +302,22 @@ export async function search(params) {
 
   let persistence = { configured: env.d1Configured, persisted: 0, duplicates: 0, canonicalUrls: [] };
   if (env.d1Configured && allFetched.length) {
-    try {
-      persistence = await persistSearchResults(allFetched, { signal: timeoutSignal(env.SEARCH_PERSISTENCE_TIMEOUT_MS) });
-    } catch (error) {
-      persistence = { configured: true, persisted: 0, duplicates: 0, error: error?.message || 'd1_persistence_failed' };
-      console.error('[search-persistence]', error?.message || error);
+    const persistPromise = persistSearchResults(allFetched, { signal: timeoutSignal(env.SEARCH_PERSISTENCE_TIMEOUT_MS) })
+      .catch((error) => {
+        console.error('[search-persistence]', error?.message || error);
+        return { configured: true, persisted: 0, duplicates: 0, canonicalUrls: [], error: error?.message || 'd1_persistence_failed' };
+      });
+    if (crawlContext?.claimed) {
+      // O crawl de Pinterest precisa do resultado (bookmark/lote persistido)
+      // pra fechar o batch — aqui o await é necessário.
+      persistence = await persistPromise;
+    } else {
+      // Pesquisa comum (auto/radar_brasil/etc.): persistir é só um efeito
+      // colateral de cache pra reaproveitar em buscas futuras, e o front não
+      // lê esses números. Bloquear a resposta nisso podia levar SEARCH_PERSISTENCE_TIMEOUT_MS
+      // (30s por padrão) e estourar o timeout do front bem antes disso — deixa
+      // rodando em segundo plano e responde com o que já temos.
+      persistence = { configured: true, persisted: 0, duplicates: 0, canonicalUrls: [], async: true };
     }
   }
 
