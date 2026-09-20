@@ -60,8 +60,8 @@ function buildValueSerpAutoCall(params, query) {
     // No modo automático, ValueSerp é complementar. Ele não pode prender a
     // resposta inteira por até 120s e causar 504 no proxy quando todas_paginas=1.
     // A busca dedicada (provedor=valueserp) continua usando o limite completo.
-    const AUTO_MAX_PAGES = 3;
-    const AUTO_TIMEOUT_MS = 12_000;
+    const AUTO_MAX_PAGES = 4;
+    const AUTO_TIMEOUT_MS = 15_000;
     const outcome = await searchValueSerp({
       query,
       limit: params.limit,
