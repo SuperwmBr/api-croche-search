@@ -57,14 +57,19 @@ function buildValueSerpAutoCall(params, query) {
     if (remaining <= 0) {
       return { configured: false, results: [], diagnostics: { reason: 'daily_limit_reached' } };
     }
+    // No modo automático, ValueSerp é complementar. Ele não pode prender a
+    // resposta inteira por até 120s e causar 504 no proxy quando todas_paginas=1.
+    // A busca dedicada (provedor=valueserp) continua usando o limite completo.
+    const AUTO_MAX_PAGES = 3;
+    const AUTO_TIMEOUT_MS = 12_000;
     const outcome = await searchValueSerp({
       query,
       limit: params.limit,
       page: 1,
       allPages: true,
-      maxPages: Math.min(params.max_paginas || env.valueserpSyncDefaultMaxPages, remaining),
+      maxPages: Math.min(params.max_paginas || env.valueserpSyncDefaultMaxPages, remaining, AUTO_MAX_PAGES),
       searchType: params.valueserp_tipo || 'images',
-      signal: timeoutSignal(env.valueserpTotalTimeoutMs)
+      signal: timeoutSignal(Math.min(env.valueserpTotalTimeoutMs, AUTO_TIMEOUT_MS))
     });
     const callsMade = Number(outcome.diagnostics?.pagesRequested || 0);
     await addValueSerpUsage(callsMade);
