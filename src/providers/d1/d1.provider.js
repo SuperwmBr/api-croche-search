@@ -25,7 +25,14 @@ function mapearResultados(rows, textualRelevance = 0.75) {
     id: `internal:${row.id}`,
     externalId: String(row.id),
     type: detectType(row.url, row.type),
-    origin: 'internal',
+    // A fonte original (web/youtube/pinterest/instagram/...) já foi
+    // classificada e persistida em SEARCH_RESULTS.source no momento da busca
+    // que descobriu este item — reler do D1 não apaga essa origem. Usar
+    // 'internal' aqui era rotular pelo MEIO de leitura (D1), não pela fonte;
+    // o parâmetro fonte=internal (buildCalls, source.js) continua
+    // funcionando igual, porque ele agrupa pelo nome do provedor chamado,
+    // não por este campo.
+    origin: row.source || 'web',
     title: row.title,
     description: row.description,
     url: row.url,
