@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { memoryCache } from '../cache/memory-cache.js';
 import { deduplicateResults } from '../deduplication/deduplicate.js';
-import { calculateScore } from '../ranking/rank.js';
+import { rankResult } from '../ranking/rank.js';
 import { expandQuery } from './query-expansion.service.js';
 import { searchInternal } from '../providers/d1/d1.provider.js';
 import { searchYouTube } from '../providers/youtube/youtube.provider.js';
@@ -22,10 +22,10 @@ const timeoutSignal = (ms) => AbortSignal.timeout(ms);
 const isProviderFailure = (status) => status === 'error' || status === 'timeout' || status === 'partial';
 const CROCHET_CONFIDENCE_THRESHOLD = 0.5;
 
-function rankAndFilter(items, allowedTypes = null) {
+function rankAndFilter(items, allowedTypes = null, query = '') {
   return deduplicateResults(
     items
-      .map((item) => ({ ...item, score: calculateScore(item.rankingSignals ?? {}) }))
+      .map((item) => rankResult(item, query, allowedTypes))
       .filter((item) => (item.rankingSignals?.crochetConfidence ?? 0) >= CROCHET_CONFIDENCE_THRESHOLD)
       .filter((item) => !allowedTypes?.length || allowedTypes.includes(item.type))
       .sort((a, b) => b.score - a.score)
@@ -167,7 +167,7 @@ function crawlSummary(job) {
 }
 
 function storedCrawlPayload(params, variants, job, results, startedAt) {
-  const ranked = rankAndFilter(results, params.tipo);
+  const ranked = rankAndFilter(results, params.tipo, params.q);
   return {
     query: params.q,
     expandedQueries: variants,
@@ -251,7 +251,7 @@ export async function search(params) {
     } else {
       const fetched = Array.isArray(outcome.value.results) ? outcome.value.results.length : 0;
       providers[name] = outcome.value.partial ? 'partial' : fetched === 0 ? 'empty' : 'ok';
-      grouped[name] = rankAndFilter(outcome.value.results, params.tipo);
+      grouped[name] = rankAndFilter(outcome.value.results, params.tipo, params.q);
       const accepted = grouped[name].length;
       providerDetails[name] = {
         ...(outcome.value.diagnostics ?? {}),
@@ -272,7 +272,7 @@ export async function search(params) {
     }
   });
 
-  const allFetched = rankAndFilter(Object.values(grouped).flat(), params.tipo);
+  const allFetched = rankAndFilter(Object.values(grouped).flat(), params.tipo, params.q);
   const returnAllFetched = params.todas_paginas && ['scraping', 'valueserp', 'mix'].includes(provider);
   const selectedProviderDetails = providerDetails[provider] || {};
   const providerFailed = Object.values(providers).some(isProviderFailure);
@@ -280,8 +280,19 @@ export async function search(params) {
   let results;
   let sourceCounts;
   if (params.fonte?.length && provider === 'auto') {
-    results = params.fonte.flatMap((source) => (grouped[source] ?? []).slice(0, params.limit_por_fonte));
-    sourceCounts = Object.fromEntries(params.fonte.map((source) => [source, Math.min((grouped[source] ?? []).length, params.limit_por_fonte)]));
+    // Cada fonte contribui com seu teto, mas a resposta final é sempre
+    // ordenada globalmente pela relevância da consulta. A ordem de `fonte`
+    // não pode decidir qual provedor aparece primeiro.
+    const candidatosPorFonte = params.fonte.flatMap((source) => (
+      grouped[source] ?? []
+    ).slice(0, params.limit_por_fonte));
+    results = rankAndFilter(candidatosPorFonte, params.tipo, params.q)
+      .slice(0, params.limit_por_fonte * params.fonte.length);
+    const returnedKeys = new Set(results.map((item) => item.id || item.url));
+    sourceCounts = Object.fromEntries(params.fonte.map((source) => [
+      source,
+      (grouped[source] ?? []).filter((item) => returnedKeys.has(item.id || item.url)).length
+    ]));
   } else if (params.fonte?.length) {
     const selected = allFetched.filter((item) => sourceSelected(item, params.fonte));
     results = returnAllFetched ? selected : selected.slice(0, params.limit_por_fonte * params.fonte.length);
