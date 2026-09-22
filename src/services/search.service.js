@@ -57,11 +57,11 @@ function buildValueSerpAutoCall(params, query) {
     if (remaining <= 0) {
       return { configured: false, results: [], diagnostics: { reason: 'daily_limit_reached' } };
     }
-    // No modo automático, ValueSerp é complementar. Ele não pode prender a
-    // resposta inteira por até 120s e causar 504 no proxy quando todas_paginas=1.
+    // No modo automático, ValueSerp é complementar. A busca continua com um
+    // timeout próprio de até 15s, mas a resposta HTTP usa uma janela curta.
+    // Se ele continuar lento, o resultado é persistido em segundo plano.
     // A busca dedicada (provedor=valueserp) continua usando o limite completo.
     const AUTO_MAX_PAGES = 4;
-    const AUTO_TIMEOUT_MS = 15_000;
     const outcome = await searchValueSerp({
       query,
       limit: params.limit,
@@ -69,12 +69,44 @@ function buildValueSerpAutoCall(params, query) {
       allPages: true,
       maxPages: Math.min(params.max_paginas || env.valueserpSyncDefaultMaxPages, remaining, AUTO_MAX_PAGES),
       searchType: params.valueserp_tipo || 'images',
-      signal: timeoutSignal(Math.min(env.valueserpTotalTimeoutMs, AUTO_TIMEOUT_MS))
+      signal: timeoutSignal(Math.min(env.valueserpTotalTimeoutMs, env.valueserpTimeoutMs))
     });
     const callsMade = Number(outcome.diagnostics?.pagesRequested || 0);
     await addValueSerpUsage(callsMade);
     return outcome;
   };
+}
+
+function startValueSerpTask(params, query) {
+  return Promise.resolve()
+    .then(() => buildValueSerpAutoCall(params, query)())
+    .then(
+      (value) => ({ status: 'fulfilled', value }),
+      (reason) => ({ status: 'rejected', reason }),
+    );
+}
+
+async function waitForValueSerpWindow(task, milliseconds) {
+  let timer;
+  try {
+    return await Promise.race([
+      task.then((outcome) => ({ timedOut: false, outcome })),
+      new Promise((resolve) => {
+        timer = setTimeout(() => resolve({ timedOut: true }), milliseconds);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+async function persistLateValueSerpResults(params, outcome) {
+  if (outcome?.status !== 'fulfilled' || !outcome.value?.configured) return;
+  const ranked = rankAndFilter(outcome.value.results ?? [], params.tipo, params.q);
+  if (!env.d1Configured || !ranked.length) return;
+  await persistSearchResults(ranked, {
+    signal: timeoutSignal(env.SEARCH_PERSISTENCE_TIMEOUT_MS)
+  });
 }
 
 function buildPinterestCall(params, query, crawlContext) {
@@ -131,10 +163,8 @@ function buildCalls(params, variants, offset, crawlContext = null) {
       searxng: buildSearxngCall(params, query, variants),
       meilisearch: () => searchMeilisearch({ query, limit: params.limit, offset, filters, signal: timeoutSignal(env.MEILISEARCH_TIMEOUT_MS) })
     };
-    // Aditivo, não substitui nada acima — só entra com incluir_valueserp=1
-    // explícito (pensado pra pesquisa manual; a carga de acervo completo
-    // não deve mandar esse parâmetro). Ver buildValueSerpAutoCall.
-    if (provider === 'auto' && params.incluir_valueserp) auto.valueserp = buildValueSerpAutoCall(params, query);
+    // O ValueSerp complementar é iniciado separadamente com retorno
+    // antecipado controlado. Ele não pode bloquear D1, YouTube e SearXNG.
     return auto;
   }
 
@@ -222,8 +252,34 @@ export async function search(params) {
     crawlContext = claimedCrawl;
   }
   const calls = buildCalls(params, variants, offset, crawlContext);
-  const names = Object.keys(calls);
-  const settled = await Promise.allSettled(names.map((name) => calls[name]()));
+  const valueSerpRequested = provider === 'auto' && params.incluir_valueserp;
+  const valueSerpTask = valueSerpRequested
+    ? startValueSerpTask(params, variants[0])
+    : null;
+  const coreNames = Object.keys(calls);
+  const coreSettledPromise = Promise.allSettled(coreNames.map((name) => calls[name]()));
+  const valueSerpEarly = valueSerpTask
+    ? await waitForValueSerpWindow(valueSerpTask, env.valueserpEarlyReturnMs)
+    : null;
+  const settledCore = await coreSettledPromise;
+  const names = [...coreNames];
+  const settled = [...settledCore];
+  let valueSerpPending = false;
+
+  if (valueSerpEarly?.timedOut) {
+    valueSerpPending = true;
+    // O provedor continua ativo depois da resposta rápida. O resultado não é
+    // descartado: quando chegar, é ranqueado e persistido no D1.
+    void valueSerpTask
+      .then((outcome) => persistLateValueSerpResults(params, outcome))
+      .catch((error) => console.error('[valueserp-enrichment]', error?.message || error));
+  } else if (valueSerpEarly?.outcome) {
+    names.push('valueserp');
+    settled.push(valueSerpEarly.outcome.status === 'fulfilled'
+      ? { status: 'fulfilled', value: valueSerpEarly.outcome.value }
+      : { status: 'rejected', reason: valueSerpEarly.outcome.reason });
+  }
+
   const providers = {};
   const providerDetails = {};
   const providerCounts = {};
@@ -271,6 +327,19 @@ export async function search(params) {
       };
     }
   });
+
+  if (valueSerpPending) {
+    providers.valueserp = 'pending';
+    providerDetails.valueserp = {
+      status: 'pending',
+      async: true,
+      rawResults: 0,
+      matchedResults: 0,
+      acceptedResults: 0,
+      returnedResults: 0
+    };
+    providerCounts.valueserp = { fetched: 0, accepted: 0, returned: 0, discarded: 0 };
+  }
 
   const allFetched = rankAndFilter(Object.values(grouped).flat(), params.tipo, params.q);
   const returnAllFetched = params.todas_paginas && ['scraping', 'valueserp', 'mix'].includes(provider);
@@ -370,8 +439,10 @@ export async function search(params) {
     limit: pageSize,
     limitMode: returnAllFetched ? 'all_pages' : params.fonte?.length ? 'per_source' : 'total',
     allPages: returnAllFetched,
-    collectionComplete: crawlJob ? crawlJob.status === 'complete' : !providerFailed && !selectedProviderDetails.hasMore,
-    partial: providerFailed || providerSkipped || Boolean(persistence.error),
+    collectionComplete: crawlJob
+      ? crawlJob.status === 'complete'
+      : !providerFailed && !providerSkipped && !selectedProviderDetails.hasMore && !valueSerpPending,
+    partial: providerFailed || providerSkipped || valueSerpPending || Boolean(persistence.error),
     providers,
     providerCounts,
     providerDetails: publicProviderDetails,
@@ -380,7 +451,14 @@ export async function search(params) {
     crawl: crawlSummary(crawlJob),
     elapsedMs: Math.round(performance.now() - startedAt),
     results,
-    cache: { layer: null, hit: false }
+    cache: { layer: null, hit: false },
+    enrichment: valueSerpRequested
+      ? {
+          provider: 'valueserp',
+          status: valueSerpPending ? 'pending' : 'included',
+          persistedAsynchronously: valueSerpPending
+        }
+      : null
   };
 
   if (!payload.partial && (!crawlJob || crawlJob.status === 'complete')) memoryCache.set(key, payload);
