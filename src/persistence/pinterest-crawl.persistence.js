@@ -59,14 +59,16 @@ const selectJob = async (id, signal) => {
   return parseJob(result.results[0]);
 };
 
-function crawlKey({ query, limit, batchPages, maxPages }) {
-  return createHash('sha256').update(JSON.stringify({ provider: 'scraping', query, limit, batchPages, maxPages: maxPages || null })).digest('hex');
+function crawlKey({ query, limit, batchPages, maxPages, cacheVariant }) {
+  const key = { provider: 'scraping', query, limit, batchPages, maxPages: maxPages || null };
+  if (cacheVariant) key.cacheVariant = cacheVariant;
+  return createHash('sha256').update(JSON.stringify(key)).digest('hex');
 }
 
-export async function preparePinterestCrawl({ query, limit, batchPages, maxPages, signal }) {
+export async function preparePinterestCrawl({ query, limit, batchPages, maxPages, cacheVariant, signal }) {
   if (!env.d1Configured) return null;
   await ensureSchema(signal);
-  const key = crawlKey({ query, limit, batchPages, maxPages });
+  const key = crawlKey({ query, limit, batchPages, maxPages, cacheVariant });
   const existing = await queryD1('SELECT * FROM SEARCH_CRAWL_JOBS WHERE crawl_key = ?', [key], { signal });
   if (existing.results[0]) return { job: parseJob(existing.results[0]), claimed: false };
 

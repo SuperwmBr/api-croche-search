@@ -286,7 +286,15 @@ export async function search(params) {
   let crawlContext = null;
   let claimedCrawl = null;
   if (provider === 'scraping' && params.todas_paginas && env.d1Configured) {
-    crawlContext = await preparePinterestCrawl({ query: variants[0], limit: params.limit, batchPages: batchLimit, maxPages: params.max_paginas });
+    crawlContext = await preparePinterestCrawl({
+      query: variants[0],
+      limit: params.limit,
+      batchPages: batchLimit,
+      maxPages: params.max_paginas,
+      // O filtro por assunto não pode reutilizar crawls concluídos antes
+      // dessa regra, que continham gráficos genéricos sem relação com a busca.
+      cacheVariant: onlyCharts ? 'chart-topic-v1' : undefined
+    });
     claimedCrawl = await claimPinterestCrawl(crawlContext.job.id);
     if (!claimedCrawl?.claimed) {
       const stored = await getPinterestCrawlResults(crawlContext.job.id, { limit: params.limit, offset: 0 });
