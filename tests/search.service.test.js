@@ -114,7 +114,8 @@ test('somente_graficos filtra por metadados sem chamar Groq por padrão', async 
     return {
       ok: true, status: 200,
       json: async () => ({ resource_response: { data: { results: [
-        { id: 'chart-pin-only', title: 'Gráfico de crochê: mandala', link: 'https://www.pinterest.com/pin/chart-pin-only/', images: { orig: { url: 'https://i.pinimg.com/originals/chart.jpg' } } },
+        { id: 'bikini-chart', title: 'Bikini crochet diagram', description: 'Bikini chart', link: 'https://www.pinterest.com/pin/bikini-chart/', images: { orig: { url: 'https://i.pinimg.com/originals/bikini-chart.jpg' } } },
+        { id: 'generic-chart-only', title: 'Gráfico de crochê: mandala', link: 'https://www.pinterest.com/pin/generic-chart-only/', images: { orig: { url: 'https://i.pinimg.com/originals/generic-chart.jpg' } } },
         { id: 'photo-pin-only', title: 'Bolsa de crochê pronta', link: 'https://www.pinterest.com/pin/photo-pin-only/', images: { orig: { url: 'https://i.pinimg.com/originals/photo.jpg' } } }
       ] }, bookmark: null } })
     };
@@ -122,7 +123,7 @@ test('somente_graficos filtra por metadados sem chamar Groq por padrão', async 
 
   try {
     const output = await search({
-      q: 'amigurumi', page: 1, limit: 5, limit_por_fonte: 5,
+      q: 'biquini crochê crochet chart', page: 1, limit: 5, limit_por_fonte: 5,
       provedor: 'scraping', provider: undefined, todas_paginas: false,
       max_paginas: 1, tipo: undefined, fonte: undefined, idioma: undefined,
       nivel: undefined, tecnica: undefined, material: undefined,
@@ -130,7 +131,7 @@ test('somente_graficos filtra por metadados sem chamar Groq por padrão', async 
       sort: 'relevancia', safe_search: '1', somente_graficos: true
     });
 
-    assert.deepEqual(output.results.map((item) => item.id), ['pinterest:chart-pin-only']);
+    assert.deepEqual(output.results.map((item) => item.id), ['pinterest:bikini-chart']);
     assert.equal(output.results[0].type, 'grafico');
     assert.equal(groqCalled, false);
     assert.equal(output.enrichment.imageClassification, undefined);

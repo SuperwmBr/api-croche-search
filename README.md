@@ -57,7 +57,7 @@ A classificação é opcional e fica desligada por padrão. Ela usa o modelo mul
 
 Configure `GROQ_API_KEY` no ambiente do servidor para habilitar o recurso. A chave nunca deve ser enviada ao navegador. Sem chave, a busca continua normalmente e o resumo informa que a classificação não está configurada. Cada imagem analisada gera uma chamada ao modelo e pode ter custo conforme a conta e os limites da Groq.
 
-Para retornar somente os pins cujos metadados indicam um gráfico, use `somente_graficos=1`. Esse filtro não chama a Groq:
+Para retornar somente pins cujos metadados indicam um gráfico e também correspondem ao assunto pesquisado, use `somente_graficos=1`. Por exemplo, uma busca por biquíni exige que o título, a descrição ou a URL indiquem `biquíni` ou `bikini`. Esse filtro não chama a Groq:
 
 ```http
 GET /api/busca?q=flor+de+croche&provedor=scraping&somente_graficos=1&limit=20

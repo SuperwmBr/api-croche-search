@@ -23,6 +23,37 @@ const cacheKey = (params) => createHash('sha256').update(JSON.stringify({ versio
 const timeoutSignal = (ms) => AbortSignal.timeout(ms);
 const isProviderFailure = (status) => status === 'error' || status === 'timeout' || status === 'partial';
 const CROCHET_CONFIDENCE_THRESHOLD = 0.5;
+const CHART_TOPIC_STOP_WORDS = new Set([
+  'croche', 'crochet', 'grafico', 'graficos', 'grafica', 'graficas',
+  'chart', 'charts', 'diagram', 'diagrams', 'diagrama', 'diagramas',
+  'stitch', 'stitches', 'pattern', 'patterns', 'patron', 'patrones',
+  'receita', 'receitas', 'recipe', 'recipes', 'tutorial', 'tutoriais',
+  'free', 'gratis', 'para', 'for', 'with', 'and', 'the', 'de', 'do',
+  'da', 'das', 'dos', 'em', 'com', 'um', 'uma', 'e'
+]);
+const CHART_TOPIC_SYNONYMS = {
+  biquini: ['biquini', 'bikini'],
+  bikini: ['bikini', 'biquini']
+};
+
+function normalizeSearchText(value = '') {
+  return String(value)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+}
+
+function matchesRequestedChartTopic(item, query) {
+  const topicTerms = normalizeSearchText(query)
+    .split(/[^a-z0-9]+/)
+    .filter((term) => term.length > 2 && !CHART_TOPIC_STOP_WORDS.has(term));
+  // Uma busca genérica por gráficos não tem um objeto específico para validar.
+  if (!topicTerms.length) return true;
+
+  const metadata = normalizeSearchText(`${item.title || ''} ${item.description || ''} ${(item.tags || []).join?.(' ') || item.tags || ''} ${item.url || ''}`);
+  return topicTerms.some((term) => (CHART_TOPIC_SYNONYMS[term] || [term])
+    .some((synonym) => metadata.includes(synonym)));
+}
 
 function rankAndFilter(items, allowedTypes = null, query = '') {
   return deduplicateResults(
@@ -208,7 +239,8 @@ function storedCrawlPayload(params, variants, job, results, startedAt) {
       tags: item.tags
     })
   }));
-  const ranked = rankAndFilter(textClassifiedResults, requestedTypes, params.q);
+  const ranked = rankAndFilter(textClassifiedResults, requestedTypes, params.q)
+    .filter((item) => !params.somente_graficos || matchesRequestedChartTopic(item, params.q));
   return {
     query: params.q,
     expandedQueries: variants,
@@ -322,7 +354,8 @@ export async function search(params) {
       providers[name] = outcome.value.partial ? 'partial' : fetched === 0 ? 'empty' : 'ok';
       // No modo somente_graficos, a classificação por texto já feita pelo
       // provedor filtra gráficos sem depender da análise visual opcional.
-      grouped[name] = rankAndFilter(outcome.value.results, onlyCharts ? null : params.tipo, params.q);
+      grouped[name] = rankAndFilter(outcome.value.results, onlyCharts ? null : params.tipo, params.q)
+        .filter((item) => !onlyCharts || matchesRequestedChartTopic(item, params.q));
       const accepted = grouped[name].length;
       providerDetails[name] = {
         ...(outcome.value.diagnostics ?? {}),
