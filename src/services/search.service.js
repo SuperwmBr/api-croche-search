@@ -198,11 +198,12 @@ function crawlSummary(job) {
 }
 
 function storedCrawlPayload(params, variants, job, results, startedAt) {
-  const ranked = rankAndFilter(results, params.tipo, params.q);
+  const requestedTypes = params.somente_graficos ? ['grafico'] : params.tipo;
+  const ranked = rankAndFilter(results, requestedTypes, params.q);
   return {
     query: params.q,
     expandedQueries: variants,
-    requestedTypes: params.tipo ?? null,
+    requestedTypes: requestedTypes ?? null,
     requestedSources: params.fonte ?? null,
     requestedProvider: 'scraping',
     total: ranked.length,
@@ -233,8 +234,10 @@ export async function search(params) {
   if (cached) memoryCache.delete(key);
 
   const startedAt = performance.now();
-  const graphFocused = params.tipo?.includes('grafico');
-  const variants = expandQuery(params.q, graphFocused ? 8 : 5, { types: params.tipo });
+  const onlyCharts = Boolean(params.somente_graficos);
+  const requestedTypes = onlyCharts ? ['grafico'] : params.tipo;
+  const graphFocused = requestedTypes?.includes('grafico');
+  const variants = expandQuery(params.q, graphFocused ? 8 : 5, { types: requestedTypes });
   const pageSize = params.fonte?.length ? params.limit_por_fonte : params.limit;
   const offset = (params.page - 1) * pageSize;
   const provider = params.provedor !== 'auto' ? params.provedor : params.provider || 'auto';
@@ -308,7 +311,9 @@ export async function search(params) {
     } else {
       const fetched = Array.isArray(outcome.value.results) ? outcome.value.results.length : 0;
       providers[name] = outcome.value.partial ? 'partial' : fetched === 0 ? 'empty' : 'ok';
-      grouped[name] = rankAndFilter(outcome.value.results, params.tipo, params.q);
+      // No modo somente_graficos, imagens ainda sem classificação precisam
+      // permanecer candidatas até a análise visual pela Groq.
+      grouped[name] = rankAndFilter(outcome.value.results, onlyCharts ? null : params.tipo, params.q);
       const accepted = grouped[name].length;
       providerDetails[name] = {
         ...(outcome.value.diagnostics ?? {}),
@@ -343,12 +348,12 @@ export async function search(params) {
   }
 
   let imageClassification = null;
-  if (params.identificar_graficos) {
+  if (params.identificar_graficos || onlyCharts) {
     const classification = await classifyCrochetChartImages(Object.values(grouped).flat());
     imageClassification = classification.diagnostics;
   }
 
-  const allFetched = rankAndFilter(Object.values(grouped).flat(), params.tipo, params.q);
+  const allFetched = rankAndFilter(Object.values(grouped).flat(), requestedTypes, params.q);
   const returnAllFetched = params.todas_paginas && ['scraping', 'valueserp', 'mix'].includes(provider);
   const selectedProviderDetails = providerDetails[provider] || {};
   const providerFailed = Object.values(providers).some(isProviderFailure);
@@ -362,7 +367,7 @@ export async function search(params) {
     const candidatosPorFonte = params.fonte.flatMap((source) => (
       grouped[source] ?? []
     ).slice(0, params.limit_por_fonte));
-    results = rankAndFilter(candidatosPorFonte, params.tipo, params.q)
+    results = rankAndFilter(candidatosPorFonte, requestedTypes, params.q)
       .slice(0, params.limit_por_fonte * params.fonte.length);
     const returnedKeys = new Set(results.map((item) => item.id || item.url));
     sourceCounts = Object.fromEntries(params.fonte.map((source) => [
@@ -435,7 +440,7 @@ export async function search(params) {
   const payload = {
     query: params.q,
     expandedQueries: variants,
-    requestedTypes: params.tipo ?? null,
+    requestedTypes: requestedTypes ?? null,
     requestedSources: params.fonte ?? null,
     requestedProvider: provider,
     total: results.length,

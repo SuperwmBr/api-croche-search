@@ -57,6 +57,14 @@ A classificação é opcional e fica desligada por padrão. Ela usa o modelo mul
 
 Configure `GROQ_API_KEY` no ambiente do servidor para habilitar o recurso. A chave nunca deve ser enviada ao navegador. Sem chave, a busca continua normalmente e o resumo informa que a classificação não está configurada. Cada imagem analisada gera uma chamada ao modelo e pode ter custo conforme a conta e os limites da Groq.
 
+Para retornar somente os gráficos confirmados pela classificação visual, use `somente_graficos=1`. Esse modo ativa a análise pela Groq e mantém apenas resultados classificados como gráficos:
+
+```http
+GET /api/busca?q=flor+de+croche&provedor=scraping&somente_graficos=1&limit=20
+```
+
+A análise está limitada a `VISION_MAX_IMAGES_PER_SEARCH` imagens candidatas por busca (5 por padrão), e depende de `GROQ_API_KEY`.
+
 O ScrapeGraphAI e a classificação visual têm funções diferentes: ScrapeGraphAI extrai dados estruturados de páginas; a classificação acima envia a imagem para um modelo com visão da Groq. O crawler dedicado do Pinterest já existente nesta API é o que busca pins, pagina resultados e persiste o acervo no D1.
 
 A persistência no D1 (`SEARCH_URLS`/`SEARCH_RESULTS`) grava os resultados em lotes (limite de 100 parâmetros por statement do D1), disparados com concorrência limitada (8 lotes simultâneos) e timeout próprio via `SEARCH_PERSISTENCE_TIMEOUT_MS` (30s por padrão) — separado do `SEARCH_PROVIDER_TIMEOUT_MS` usado nas buscas leves (D1 interno/YouTube), já que lotes de centenas de itens (comuns em `provedor=mix`) tomam bem mais tempo que uma única consulta.
