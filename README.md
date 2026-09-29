@@ -47,7 +47,7 @@ O scraping do Pinterest usa `bookmark` para percorrer as páginas disponíveis e
 
 ### Identificação visual de gráficos
 
-O provedor `scraping` já coleta pins e URLs das imagens do Pinterest. Para analisar visualmente as imagens e distinguir um gráfico de crochê de uma foto de peça pronta, a busca aceita `identificar_graficos=1`:
+O provedor `scraping` já coleta pins e URLs das imagens do Pinterest. Por padrão, a API reconhece gráficos pelos metadados do pin (título, descrição e URL). Para analisar visualmente as imagens e distinguir um gráfico de crochê de uma foto de peça pronta, de forma opcional, use `identificar_graficos=1`:
 
 ```text
 GET /api/busca?q=grafico+de+croche&provedor=scraping&identificar_graficos=1&limit=20
@@ -57,13 +57,13 @@ A classificação é opcional e fica desligada por padrão. Ela usa o modelo mul
 
 Configure `GROQ_API_KEY` no ambiente do servidor para habilitar o recurso. A chave nunca deve ser enviada ao navegador. Sem chave, a busca continua normalmente e o resumo informa que a classificação não está configurada. Cada imagem analisada gera uma chamada ao modelo e pode ter custo conforme a conta e os limites da Groq.
 
-Para retornar somente os gráficos confirmados pela classificação visual, use `somente_graficos=1`. Esse modo ativa a análise pela Groq e mantém apenas resultados classificados como gráficos:
+Para retornar somente os pins cujos metadados indicam um gráfico, use `somente_graficos=1`. Esse filtro não chama a Groq:
 
 ```http
 GET /api/busca?q=flor+de+croche&provedor=scraping&somente_graficos=1&limit=20
 ```
 
-A análise está limitada a `VISION_MAX_IMAGES_PER_SEARCH` imagens candidatas por busca (5 por padrão), e depende de `GROQ_API_KEY`.
+A análise visual opcional está limitada a `VISION_MAX_IMAGES_PER_SEARCH` imagens candidatas por busca (5 por padrão), e depende de `GROQ_API_KEY`. Para combinar o filtro de gráficos com a verificação visual, envie `somente_graficos=1&identificar_graficos=1`. Sem `identificar_graficos=1`, a chave não é necessária.
 
 O ScrapeGraphAI e a classificação visual têm funções diferentes: ScrapeGraphAI extrai dados estruturados de páginas; a classificação acima envia a imagem para um modelo com visão da Groq. O crawler dedicado do Pinterest já existente nesta API é o que busca pins, pagina resultados e persiste o acervo no D1.
 

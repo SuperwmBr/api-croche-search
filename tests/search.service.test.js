@@ -99,27 +99,23 @@ test('classificação visual é opt-in e promove imagem do Pinterest a gráfico'
   }
 });
 
-test('somente_graficos classifica imagens e devolve apenas gráficos confirmados', async () => {
+test('somente_graficos filtra por metadados sem chamar Groq por padrão', async () => {
   const originalFetch = globalThis.fetch;
   const originalD1Configured = env.d1Configured;
   const originalApiKey = env.groqApiKey;
   env.d1Configured = false;
-  env.groqApiKey = 'test-key';
+  env.groqApiKey = '';
+  let groqCalled = false;
   globalThis.fetch = async (url, init) => {
     if (String(url).includes('api.groq.com/openai/v1/responses')) {
-      const request = JSON.parse(init.body);
-      const imageUrl = request.input[0].content.find((part) => part.type === 'input_image').image_url;
-      const isChart = imageUrl.includes('chart.jpg');
-      return {
-        ok: true, status: 200,
-        json: async () => ({ output_text: JSON.stringify({ isCrochetChart: isChart, confidence: isChart ? 0.96 : 0.98, rationale: isChart ? 'Símbolos em carreiras.' : 'Foto de peça pronta.' }) })
-      };
+      groqCalled = true;
+      throw new Error('Groq não deve ser chamada sem identificar_graficos=1');
     }
     return {
       ok: true, status: 200,
       json: async () => ({ resource_response: { data: { results: [
-        { id: 'chart-pin-only', title: 'Crochê', link: 'https://www.pinterest.com/pin/chart-pin-only/', images: { orig: { url: 'https://i.pinimg.com/originals/chart.jpg' } } },
-        { id: 'photo-pin-only', title: 'Crochê', link: 'https://www.pinterest.com/pin/photo-pin-only/', images: { orig: { url: 'https://i.pinimg.com/originals/photo.jpg' } } }
+        { id: 'chart-pin-only', title: 'Gráfico de crochê: mandala', link: 'https://www.pinterest.com/pin/chart-pin-only/', images: { orig: { url: 'https://i.pinimg.com/originals/chart.jpg' } } },
+        { id: 'photo-pin-only', title: 'Bolsa de crochê pronta', link: 'https://www.pinterest.com/pin/photo-pin-only/', images: { orig: { url: 'https://i.pinimg.com/originals/photo.jpg' } } }
       ] }, bookmark: null } })
     };
   };
@@ -136,7 +132,8 @@ test('somente_graficos classifica imagens e devolve apenas gráficos confirmados
 
     assert.deepEqual(output.results.map((item) => item.id), ['pinterest:chart-pin-only']);
     assert.equal(output.results[0].type, 'grafico');
-    assert.equal(output.enrichment.imageClassification.classified, 2);
+    assert.equal(groqCalled, false);
+    assert.equal(output.enrichment.imageClassification, undefined);
   } finally {
     globalThis.fetch = originalFetch;
     env.d1Configured = originalD1Configured;

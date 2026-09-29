@@ -16,8 +16,9 @@ import { enqueuePinterestCrawl } from './pinterest-crawl.service.js';
 import { buildSourceQueries, categoriesForSource } from '../classification/source.js';
 import { env } from '../config/env.js';
 import { classifyCrochetChartImages } from '../classification/image-chart.js';
+import { detectType } from '../classification/type.js';
 
-const SEARCH_CACHE_VERSION = 'v2';
+const SEARCH_CACHE_VERSION = 'v3';
 const cacheKey = (params) => createHash('sha256').update(JSON.stringify({ version: SEARCH_CACHE_VERSION, ...params })).digest('hex');
 const timeoutSignal = (ms) => AbortSignal.timeout(ms);
 const isProviderFailure = (status) => status === 'error' || status === 'timeout' || status === 'partial';
@@ -199,7 +200,15 @@ function crawlSummary(job) {
 
 function storedCrawlPayload(params, variants, job, results, startedAt) {
   const requestedTypes = params.somente_graficos ? ['grafico'] : params.tipo;
-  const ranked = rankAndFilter(results, requestedTypes, params.q);
+  const textClassifiedResults = results.map((item) => ({
+    ...item,
+    type: detectType(item.url, item.type || 'imagem', {
+      title: item.title,
+      description: item.description,
+      tags: item.tags
+    })
+  }));
+  const ranked = rankAndFilter(textClassifiedResults, requestedTypes, params.q);
   return {
     query: params.q,
     expandedQueries: variants,
@@ -311,8 +320,8 @@ export async function search(params) {
     } else {
       const fetched = Array.isArray(outcome.value.results) ? outcome.value.results.length : 0;
       providers[name] = outcome.value.partial ? 'partial' : fetched === 0 ? 'empty' : 'ok';
-      // No modo somente_graficos, imagens ainda sem classificação precisam
-      // permanecer candidatas até a análise visual pela Groq.
+      // No modo somente_graficos, a classificação por texto já feita pelo
+      // provedor filtra gráficos sem depender da análise visual opcional.
       grouped[name] = rankAndFilter(outcome.value.results, onlyCharts ? null : params.tipo, params.q);
       const accepted = grouped[name].length;
       providerDetails[name] = {
@@ -348,7 +357,7 @@ export async function search(params) {
   }
 
   let imageClassification = null;
-  if (params.identificar_graficos || onlyCharts) {
+  if (params.identificar_graficos) {
     const classification = await classifyCrochetChartImages(Object.values(grouped).flat());
     imageClassification = classification.diagnostics;
   }

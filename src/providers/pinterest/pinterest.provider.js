@@ -1,4 +1,5 @@
 import { sourceFromUrl } from '../../classification/source.js';
+import { detectType } from '../../classification/type.js';
 import { env } from '../../config/env.js';
 
 function imageFromPin(pin) {
@@ -28,7 +29,12 @@ function toResult(pin, page, index) {
   return {
     id: `pinterest:${pin?.id || `${page}-${index + 1}`}`,
     externalId: String(pin?.id || `${page}-${index + 1}`),
-    type: 'imagem',
+    // Usa título/descrição para reconhecer gráficos sem depender de um
+    // classificador visual externo. A Groq continua disponível como opção.
+    type: detectType(url, 'imagem', {
+      title: pin?.title || pin?.grid_title || pin?.description,
+      description: pin?.description || pin?.grid_title
+    }),
     origin: sourceFromUrl(url, 'pinterest'),
     provider: 'pinterest_scraping',
     engine: 'pinterest',

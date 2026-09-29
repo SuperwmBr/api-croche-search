@@ -42,7 +42,6 @@ export const searchQuerySchema = z.object({
   // sujeito ao teto diário compartilhado (ver valueserp-usage.service.js).
   incluir_valueserp: z.enum(['0', '1']).transform((value) => value === '1').default(false),
   identificar_graficos: z.enum(['0', '1']).transform((value) => value === '1').default(false),
-  // Classifica visualmente as imagens candidatas e retorna somente itens
-  // classificados como gráfico de crochê.
+  // Filtra gráficos identificados por metadados; sem análise visual externa.
   somente_graficos: z.enum(['0', '1']).transform((value) => value === '1').default(false)
 });
