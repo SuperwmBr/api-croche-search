@@ -40,5 +40,6 @@ export const searchQuerySchema = z.object({
   // provedor=valueserp/mix fazem. Pensado para pesquisa manual do usuário
   // (uma expressão digitada), não para varreduras de acervo completo —
   // sujeito ao teto diário compartilhado (ver valueserp-usage.service.js).
-  incluir_valueserp: z.enum(['0', '1']).transform((value) => value === '1').default(false)
+  incluir_valueserp: z.enum(['0', '1']).transform((value) => value === '1').default(false),
+  identificar_graficos: z.enum(['0', '1']).transform((value) => value === '1').default(false)
 });

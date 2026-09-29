@@ -15,6 +15,7 @@ import { getPinterestCrawlResults, preparePinterestCrawl, claimPinterestCrawl, s
 import { enqueuePinterestCrawl } from './pinterest-crawl.service.js';
 import { buildSourceQueries, categoriesForSource } from '../classification/source.js';
 import { env } from '../config/env.js';
+import { classifyCrochetChartImages } from '../classification/image-chart.js';
 
 const SEARCH_CACHE_VERSION = 'v2';
 const cacheKey = (params) => createHash('sha256').update(JSON.stringify({ version: SEARCH_CACHE_VERSION, ...params })).digest('hex');
@@ -341,6 +342,12 @@ export async function search(params) {
     providerCounts.valueserp = { fetched: 0, accepted: 0, returned: 0, discarded: 0 };
   }
 
+  let imageClassification = null;
+  if (params.identificar_graficos) {
+    const classification = await classifyCrochetChartImages(Object.values(grouped).flat());
+    imageClassification = classification.diagnostics;
+  }
+
   const allFetched = rankAndFilter(Object.values(grouped).flat(), params.tipo, params.q);
   const returnAllFetched = params.todas_paginas && ['scraping', 'valueserp', 'mix'].includes(provider);
   const selectedProviderDetails = providerDetails[provider] || {};
@@ -452,13 +459,15 @@ export async function search(params) {
     elapsedMs: Math.round(performance.now() - startedAt),
     results,
     cache: { layer: null, hit: false },
-    enrichment: valueSerpRequested
-      ? {
-          provider: 'valueserp',
+    enrichment: {
+      ...(valueSerpRequested ? {
+        valueserp: {
           status: valueSerpPending ? 'pending' : 'included',
           persistedAsynchronously: valueSerpPending
         }
-      : null
+      } : {}),
+      ...(imageClassification ? { imageClassification } : {})
+    }
   };
 
   if (!payload.partial && (!crawlJob || crawlJob.status === 'complete')) memoryCache.set(key, payload);

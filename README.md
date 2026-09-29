@@ -45,6 +45,20 @@ Para o ValueSerp, `todas_paginas=1` é o padrão. **Se `max_paginas` não for in
 
 O scraping do Pinterest usa `bookmark` para percorrer as páginas disponíveis e extrai a imagem original do pin (`images.orig.url`) quando fornecida.
 
+### Identificação visual de gráficos
+
+O provedor `scraping` já coleta pins e URLs das imagens do Pinterest. Para analisar visualmente as imagens e distinguir um gráfico de crochê de uma foto de peça pronta, a busca aceita `identificar_graficos=1`:
+
+```text
+GET /api/busca?q=grafico+de+croche&provedor=scraping&identificar_graficos=1&limit=20
+```
+
+A classificação é opcional e fica desligada por padrão. Ela usa um modelo com visão da API OpenAI, limitado a `VISION_MAX_IMAGES_PER_SEARCH` imagens por chamada (5 por padrão), e só envia imagens HTTPS hospedadas em `pinimg.com`. O campo `visualClassification` de cada resultado informa `isCrochetChart`, `confidence` e uma justificativa curta. Quando a confiança atinge `VISION_CHART_THRESHOLD` (0,75 por padrão), o resultado passa a ter `type: "grafico"`. O resumo da operação fica em `enrichment.imageClassification`.
+
+Configure `OPENAI_API_KEY` no ambiente do servidor para habilitar o recurso. A chave nunca deve ser enviada ao navegador. Sem chave, a busca continua normalmente e o resumo informa que a classificação não está configurada. Cada imagem analisada gera uma chamada ao modelo e pode ter custo no provedor.
+
+O ScrapeGraphAI e a classificação visual têm funções diferentes: ScrapeGraphAI extrai dados estruturados de páginas; a classificação acima envia a imagem para um modelo com visão. O crawler dedicado do Pinterest já existente nesta API é o que busca pins, pagina resultados e persiste o acervo no D1.
+
 A persistência no D1 (`SEARCH_URLS`/`SEARCH_RESULTS`) grava os resultados em lotes (limite de 100 parâmetros por statement do D1), disparados com concorrência limitada (8 lotes simultâneos) e timeout próprio via `SEARCH_PERSISTENCE_TIMEOUT_MS` (30s por padrão) — separado do `SEARCH_PROVIDER_TIMEOUT_MS` usado nas buscas leves (D1 interno/YouTube), já que lotes de centenas de itens (comuns em `provedor=mix`) tomam bem mais tempo que uma única consulta.
 
 Quando `provedor=valueserp` ou `provedor=scraping` é usado com `todas_paginas=1`, `limit` define o tamanho solicitado por página. No Pinterest, a API limita cada lote a `PINTEREST_BATCH_MAX_PAGES` páginas (3 por padrão), grava o bookmark internamente e continua a coleta em segundo plano, evitando que o cliente precise conhecer ou enviar qualquer cursor do Pinterest.

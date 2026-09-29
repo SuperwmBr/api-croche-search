@@ -56,6 +56,49 @@ test('provedor scraping retorna todos os resultados quando todas_paginas está a
   }
 });
 
+test('classificação visual é opt-in e promove imagem do Pinterest a gráfico', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalD1Configured = env.d1Configured;
+  const originalApiKey = env.openaiApiKey;
+  env.d1Configured = false;
+  env.openaiApiKey = 'test-key';
+  globalThis.fetch = async (url) => {
+    if (String(url).includes('api.openai.com/v1/responses')) {
+      return {
+        ok: true, status: 200,
+        json: async () => ({ output_text: '{"isCrochetChart":true,"confidence":0.96,"rationale":"Símbolos em carreiras."}' })
+      };
+    }
+    return {
+      ok: true, status: 200,
+      json: async () => ({
+        resource_response: {
+          data: { results: [{ id: 'chart-pin', title: 'Crochê', link: 'https://www.pinterest.com/pin/chart-pin/', images: { orig: { url: 'https://i.pinimg.com/originals/chart.jpg' } } }] },
+          bookmark: null
+        }
+      })
+    };
+  };
+
+  try {
+    const output = await search({
+      q: 'grafico de croche', page: 1, limit: 5, limit_por_fonte: 5,
+      provedor: 'scraping', provider: undefined, todas_paginas: false,
+      max_paginas: 1, tipo: undefined, fonte: undefined, idioma: undefined,
+      nivel: undefined, tecnica: undefined, material: undefined,
+      duracao_maxima: undefined, data_inicio: undefined, data_fim: undefined,
+      sort: 'relevancia', safe_search: '1', identificar_graficos: true
+    });
+    assert.equal(output.results[0].type, 'grafico');
+    assert.equal(output.results[0].visualClassification.isCrochetChart, true);
+    assert.equal(output.enrichment.imageClassification.classified, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+    env.d1Configured = originalD1Configured;
+    env.openaiApiKey = originalApiKey;
+  }
+});
+
 test('modo auto NAO chama ValueSerp por padrão (incluir_valueserp ausente)', async () => {
   const originalFetch = globalThis.fetch;
   const originalD1Configured = env.d1Configured;
