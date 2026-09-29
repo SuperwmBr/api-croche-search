@@ -23,14 +23,14 @@ function parseClassification(text) {
 }
 
 async function classifyImage(imageUrl) {
-  const response = await fetch('https://api.openai.com/v1/responses', {
+  const response = await fetch('https://api.groq.com/openai/v1/responses', {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${env.openaiApiKey}`,
+      Authorization: `Bearer ${env.groqApiKey}`,
       'Content-Type': 'application/json'
     },
     body: JSON.stringify({
-      model: env.openaiVisionModel,
+      model: env.groqVisionModel,
       input: [{
         role: 'user',
         content: [
@@ -38,16 +38,16 @@ async function classifyImage(imageUrl) {
             type: 'input_text',
             text: 'Classifique a imagem. Considere gráfico de crochê somente uma representação visual de pontos, símbolos, carreiras ou instruções para executar uma peça de crochê. Uma foto de uma peça pronta, uma pessoa crocheteira, um tutorial em vídeo ou uma imagem decorativa não é um gráfico. Responda somente JSON: {"isCrochetChart": boolean, "confidence": número entre 0 e 1, "rationale": "motivo curto em português"}.'
           },
-          { type: 'input_image', image_url: imageUrl, detail: 'low' }
+          { type: 'input_image', image_url: imageUrl, detail: 'auto' }
         ]
       }],
       max_output_tokens: 120
     }),
-    signal: AbortSignal.timeout(env.openaiVisionTimeoutMs)
+    signal: AbortSignal.timeout(env.groqVisionTimeoutMs)
   });
 
   const body = await response.json().catch(() => null);
-  if (!response.ok || !body) throw new Error(`OpenAI Vision respondeu HTTP ${response.status}`);
+  if (!response.ok || !body) throw new Error(`Groq Vision respondeu HTTP ${response.status}`);
   return parseClassification(responseText(body));
 }
 
@@ -64,13 +64,13 @@ export async function classifyCrochetChartImages(items, { limit = env.visionMaxI
   }).slice(0, limit);
   const diagnostics = {
     enabled: true,
-    configured: Boolean(env.openaiApiKey),
+    configured: Boolean(env.groqApiKey),
     requested: candidates.length,
     classified: 0,
     errors: 0
   };
 
-  if (!env.openaiApiKey) return { items, diagnostics: { ...diagnostics, reason: 'OPENAI_API_KEY ausente' } };
+  if (!env.groqApiKey) return { items, diagnostics: { ...diagnostics, reason: 'GROQ_API_KEY ausente' } };
 
   // Limita concorrência para não disparar uma chamada por resultado de busca.
   for (let offset = 0; offset < candidates.length; offset += 2) {

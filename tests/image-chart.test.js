@@ -5,11 +5,12 @@ import { classifyCrochetChartImages } from '../src/classification/image-chart.js
 
 test('classifica imagem de pin e marca como gráfico quando o modelo confirma', async () => {
   const originalFetch = globalThis.fetch;
-  const originalKey = env.openaiApiKey;
+  const originalKey = env.groqApiKey;
   const originalThreshold = env.visionChartThreshold;
-  env.openaiApiKey = 'test-key';
+  env.groqApiKey = 'test-key';
   env.visionChartThreshold = 0.75;
-  globalThis.fetch = async (_url, init) => {
+    globalThis.fetch = async (url, init) => {
+    assert.equal(String(url), 'https://api.groq.com/openai/v1/responses');
     const request = JSON.parse(init.body);
     assert.equal(request.input[0].content[1].image_url, 'https://i.pinimg.com/originals/chart.jpg');
     return {
@@ -34,15 +35,15 @@ test('classifica imagem de pin e marca como gráfico quando o modelo confirma', 
     assert.equal(result.diagnostics.classified, 1);
   } finally {
     globalThis.fetch = originalFetch;
-    env.openaiApiKey = originalKey;
+    env.groqApiKey = originalKey;
     env.visionChartThreshold = originalThreshold;
   }
 });
 
 test('não envia URLs de imagem fora do domínio pinimg para o modelo', async () => {
   const originalFetch = globalThis.fetch;
-  const originalKey = env.openaiApiKey;
-  env.openaiApiKey = 'test-key';
+  const originalKey = env.groqApiKey;
+  env.groqApiKey = 'test-key';
   globalThis.fetch = async () => { throw new Error('não deveria chamar o modelo'); };
   try {
     const result = await classifyCrochetChartImages([{
@@ -52,6 +53,6 @@ test('não envia URLs de imagem fora do domínio pinimg para o modelo', async ()
     assert.equal(result.diagnostics.classified, 0);
   } finally {
     globalThis.fetch = originalFetch;
-    env.openaiApiKey = originalKey;
+    env.groqApiKey = originalKey;
   }
 });
