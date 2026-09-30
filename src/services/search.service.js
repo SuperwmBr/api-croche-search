@@ -164,26 +164,27 @@ async function persistLateValueSerpResults(params, outcome) {
   });
 }
 
-function chartSearchVariants(query, variants, params, crawlContext) {
+function chartSearchVariants(query, params, crawlContext) {
   if (!params.somente_graficos || params.todas_paginas || crawlContext) return [query];
   const normalized = normalizeSearchText(query);
   if (!/\b(grafico|graficos|diagrama|diagramas|chart|charts|esquema)\b/.test(normalized)) return [query];
-  const english = normalized
-    .replace(/\bbiquini\b/g, 'bikini')
-    .replace(/\bcroche\b/g, 'crochet')
-    .split(/\s+/)
-    .filter((term) => !['de', 'da', 'do', 'das', 'dos', 'em', 'com'].includes(term))
+  const subject = normalized
+    .split(/[^a-z0-9]+/)
+    .filter((term) => term.length > 2 && !CHART_TOPIC_STOP_WORDS.has(term))
+    .map((term) => term === 'biquini' ? 'bikini' : term)
     .join(' ');
-  const candidates = [query, ...(variants || []).slice(1, 3), english];
+  const candidates = subject
+    ? [query, `${subject} croche grafico`, `${subject} crochet chart`, `${subject} crochet diagram`]
+    : [query, 'crochet chart', 'crochet diagram'];
   return [...new Set(candidates.map((value) => value.trim()).filter(Boolean))].slice(0, 4);
 }
 
-function buildPinterestCall(params, query, variants, crawlContext) {
+function buildPinterestCall(params, query, crawlContext) {
   const batchLimit = Math.min(params.lote_paginas || env.pinterestBatchMaxPages, env.pinterestBatchMaxPages);
   const maxPages = Math.min(params.max_paginas || batchLimit, batchLimit);
   return () => searchPinterest({
     query,
-    queries: chartSearchVariants(query, variants, params, crawlContext),
+    queries: chartSearchVariants(query, params, crawlContext),
     limit: params.limit,
     bookmark: crawlContext?.job.nextBookmark || null,
     allPages: params.todas_paginas,
@@ -217,10 +218,10 @@ function buildCalls(params, variants, offset, crawlContext = null) {
   ].filter(Boolean);
 
   if (provider === 'valueserp') return { valueserp: buildValueSerpCall(params, query) };
-  if (provider === 'scraping') return { scraping: buildPinterestCall(params, query, variants, crawlContext) };
+  if (provider === 'scraping') return { scraping: buildPinterestCall(params, query, crawlContext) };
   if (provider === 'mix') {
     return {
-      scraping: buildPinterestCall(params, query, variants, crawlContext),
+      scraping: buildPinterestCall(params, query, crawlContext),
       valueserp: buildValueSerpCall(params, query)
     };
   }
