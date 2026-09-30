@@ -235,6 +235,9 @@ function buildCalls(params, variants, offset, crawlContext = null) {
       searxng: buildSearxngCall(params, query, variants),
       meilisearch: () => searchMeilisearch({ query, limit: params.limit, offset, filters, signal: timeoutSignal(env.MEILISEARCH_TIMEOUT_MS) })
     };
+    // No modo gráfico do Radar, Pinterest entra como fonte adicional. Não
+    // substitui os provedores já ativos no `auto`.
+    if (params.somente_graficos) auto.scraping = buildPinterestCall(params, query, crawlContext);
     // O ValueSerp complementar é iniciado separadamente com retorno
     // antecipado controlado. Ele não pode bloquear D1, YouTube e SearXNG.
     return auto;

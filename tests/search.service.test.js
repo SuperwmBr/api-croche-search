@@ -218,6 +218,87 @@ test('busca genérica de gráficos envia a frase exata ao Pinterest sem fan-out'
   }
 });
 
+test('provedor auto mantém as fontes existentes e soma Pinterest no modo gráficos', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalD1Configured = env.d1Configured;
+  const originalYoutubeConfigured = env.youtubeConfigured;
+  const originalMeiliConfigured = env.meilisearchConfigured;
+  const originalValueSerpKey = env.valueserpApiKey;
+  const originalValueSerpWindow = env.valueserpEarlyReturnMs;
+  const originalSearxUrl = env.SEARXNG_URL;
+  env.d1Configured = false;
+  env.youtubeConfigured = false;
+  env.meilisearchConfigured = false;
+  env.valueserpApiKey = 'test-valueserp-key';
+  env.valueserpEarlyReturnMs = 1000;
+  env.SEARXNG_URL = 'https://searx.test';
+
+  let pinterestCalls = 0;
+  let searxCalls = 0;
+  let valueserpCalls = 0;
+  globalThis.fetch = async (url) => {
+    const parsed = new URL(url);
+    if (parsed.pathname.includes('BaseSearchResource')) {
+      pinterestCalls += 1;
+      return {
+        ok: true, status: 200,
+        json: async () => ({ resource_response: { data: { results: [
+          { id: 'pinterest-bikini-chart', title: 'Bikini crochet chart', description: 'Crochet diagram', link: 'https://www.pinterest.com/pin/pinterest-bikini-chart/' }
+        ] }, bookmark: null } })
+      };
+    }
+    if (parsed.hostname === 'searx.test') {
+      searxCalls += 1;
+      return {
+        ok: true, status: 200,
+        json: async () => ({ results: [
+          { title: 'Bikini crochet chart from web', content: 'Crochet diagram', url: 'https://charts.example/web-chart' }
+        ] })
+      };
+    }
+    if (parsed.hostname === 'api.valueserp.com') {
+      valueserpCalls += 1;
+      return {
+        ok: true, status: 200,
+        json: async () => ({ image_results: [
+          { position: 1, title: 'Bikini crochet chart image', link: 'https://charts.example/valueserp-chart', image: 'https://images.example/chart.jpg' }
+        ] })
+      };
+    }
+    return { ok: false, status: 503, json: async () => ({}) };
+  };
+
+  try {
+    const output = await search({
+      q: 'biquini de croche chart', page: 1, limit: 10, limit_por_fonte: 10,
+      provedor: 'auto', provider: undefined, todas_paginas: false,
+      max_paginas: 1, tipo: undefined, fonte: undefined, idioma: undefined,
+      nivel: undefined, tecnica: undefined, material: undefined,
+      duracao_maxima: undefined, data_inicio: undefined, data_fim: undefined,
+      sort: 'relevancia', safe_search: '1', somente_graficos: true, incluir_valueserp: true
+    });
+
+    assert.equal(output.requestedProvider, 'auto');
+    assert.equal(output.providers.scraping, 'ok');
+    assert.equal(output.providers.searxng, 'ok');
+    assert.equal(output.providers.valueserp, 'ok');
+    assert.ok(pinterestCalls > 0);
+    assert.ok(searxCalls > 0);
+    assert.ok(valueserpCalls > 0);
+    assert.ok(output.results.some((item) => item.origin === 'pinterest'));
+    assert.ok(output.results.some((item) => item.url === 'https://charts.example/web-chart'));
+    assert.ok(output.results.some((item) => item.url === 'https://charts.example/valueserp-chart'));
+  } finally {
+    globalThis.fetch = originalFetch;
+    env.d1Configured = originalD1Configured;
+    env.youtubeConfigured = originalYoutubeConfigured;
+    env.meilisearchConfigured = originalMeiliConfigured;
+    env.valueserpApiKey = originalValueSerpKey;
+    env.valueserpEarlyReturnMs = originalValueSerpWindow;
+    env.SEARXNG_URL = originalSearxUrl;
+  }
+});
+
 test('crawl salvo examina todos os pins antes de filtrar e respeita limite de resultados', async () => {
   const originalFetch = globalThis.fetch;
   const originalD1Configured = env.d1Configured;
