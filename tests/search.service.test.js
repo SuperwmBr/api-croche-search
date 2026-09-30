@@ -99,7 +99,7 @@ test('classificação visual é opt-in e promove imagem do Pinterest a gráfico'
   }
 });
 
-test('somente_graficos filtra por metadados sem chamar Groq por padrão', async () => {
+test('somente_graficos usa a consulta do Pinterest sem chamar Groq por padrão', async () => {
   const originalFetch = globalThis.fetch;
   const originalD1Configured = env.d1Configured;
   const originalApiKey = env.groqApiKey;
@@ -131,8 +131,11 @@ test('somente_graficos filtra por metadados sem chamar Groq por padrão', async 
       sort: 'relevancia', safe_search: '1', somente_graficos: true
     });
 
-    assert.deepEqual(output.results.map((item) => item.id), ['pinterest:bikini-chart']);
-    assert.equal(output.results[0].type, 'grafico');
+    assert.deepEqual(output.results.map((item) => item.id), [
+      'pinterest:bikini-chart', 'pinterest:generic-chart-only', 'pinterest:photo-pin-only'
+    ]);
+    assert.ok(output.results.every((item) => item.type === 'grafico'));
+    assert.ok(output.results.every((item) => item.classificationBasis === 'pinterest_search_query'));
     assert.ok(output.providerDetails.scraping.queriesRequested > 1);
     assert.equal(groqCalled, false);
     assert.equal(output.enrichment.imageClassification, undefined);
@@ -143,7 +146,7 @@ test('somente_graficos filtra por metadados sem chamar Groq por padrão', async 
   }
 });
 
-test('contadores de somente_graficos não aceitam foto relacionada ao assunto como gráfico', async () => {
+test('somente_graficos não descarta pins do Pinterest por metadados vazios ou sem assunto', async () => {
   const originalFetch = globalThis.fetch;
   const originalD1Configured = env.d1Configured;
   env.d1Configured = false;
@@ -151,8 +154,8 @@ test('contadores de somente_graficos não aceitam foto relacionada ao assunto co
     ok: true,
     status: 200,
     json: async () => ({ resource_response: { data: { results: [
-      { id: 'bikini-photo', title: 'Bikini crochet top', description: 'Crochet swimsuit', link: 'https://www.pinterest.com/pin/bikini-photo/', images: { orig: { url: 'https://i.pinimg.com/originals/bikini-photo.jpg' } } },
-      { id: 'flower-chart', title: 'Crochet chart flower', description: 'Crochet diagram', link: 'https://www.pinterest.com/pin/flower-chart/', images: { orig: { url: 'https://i.pinimg.com/originals/flower-chart.jpg' } } }
+      { id: 'bikini-photo', title: ' ', description: ' ', link: 'https://www.pinterest.com/pin/bikini-photo/', images: { orig: { url: 'https://i.pinimg.com/originals/bikini-photo.jpg' } } },
+      { id: 'flower-chart', title: '', description: '', link: 'https://www.pinterest.com/pin/flower-chart/', images: { orig: { url: 'https://i.pinimg.com/originals/flower-chart.jpg' } } }
     ] }, bookmark: null } })
   });
 
@@ -167,10 +170,11 @@ test('contadores de somente_graficos não aceitam foto relacionada ao assunto co
     });
 
     assert.equal(output.providerCounts.scraping.fetched, 2);
-    assert.equal(output.providerCounts.scraping.accepted, 0);
-    assert.equal(output.providerCounts.scraping.returned, 0);
-    assert.equal(output.totalFetched, 0);
-    assert.equal(output.total, 0);
+    assert.equal(output.providerCounts.scraping.accepted, 2);
+    assert.equal(output.providerCounts.scraping.returned, 2);
+    assert.equal(output.totalFetched, 2);
+    assert.equal(output.total, 2);
+    assert.ok(output.results.every((item) => item.type === 'grafico'));
   } finally {
     globalThis.fetch = originalFetch;
     env.d1Configured = originalD1Configured;
@@ -256,9 +260,10 @@ test('crawl salvo examina todos os pins antes de filtrar e respeita limite de re
     });
 
     assert.equal(output.totalFetched, 101);
-    assert.equal(output.total, 1);
-    assert.equal(output.results.length, 1);
-    assert.equal(output.results[0].title, 'Bikini crochet chart');
+    assert.equal(output.total, 101);
+    assert.equal(output.results.length, 101);
+    assert.ok(output.results.every((item) => item.type === 'grafico'));
+    assert.ok(output.results.every((item) => item.classificationBasis === 'pinterest_search_query'));
   } finally {
     globalThis.fetch = originalFetch;
     env.d1Configured = originalD1Configured;

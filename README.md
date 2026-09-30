@@ -57,7 +57,7 @@ A classificação é opcional e fica desligada por padrão. Ela usa o modelo mul
 
 Configure `GROQ_API_KEY` no ambiente do servidor para habilitar o recurso. A chave nunca deve ser enviada ao navegador. Sem chave, a busca continua normalmente e o resumo informa que a classificação não está configurada. Cada imagem analisada gera uma chamada ao modelo e pode ter custo conforme a conta e os limites da Groq.
 
-Para retornar somente pins cujos metadados indicam um gráfico e também correspondem ao assunto pesquisado, use `somente_graficos=1`. Por exemplo, uma busca por biquíni exige que o título, a descrição ou a URL indiquem `biquíni` ou `bikini`. Esse filtro não chama a Groq. Em buscas de uma página, a API também consulta variantes em português e inglês, combina e deduplica os pins antes do filtro. Títulos e descrições usam campos alternativos do pin quando os campos principais vêm vazios:
+Para pesquisar gráficos pelo termo no Pinterest sem exigir que título ou descrição do pin repitam as palavras da busca, use `somente_graficos=1`. A API confia nos resultados ordenados pelo Pinterest, classifica esses itens como candidatos a gráfico (`classificationBasis: "pinterest_search_query"`) e não chama a Groq. Isso prioriza capturar os resultados que o Pinterest mostra, inclusive quando os metadados vêm vazios; a API não confirma visualmente o conteúdo. A ordem original do Pinterest é mantida. Em buscas de uma página, consulta variantes em português e inglês, combina e deduplica os pins. Títulos e descrições também usam campos alternativos quando os campos principais vêm vazios:
 
 ```http
 GET /api/busca?q=flor+de+croche&provedor=scraping&somente_graficos=1&limit=20

@@ -19,7 +19,7 @@ import { classifyCrochetChartImages } from '../classification/image-chart.js';
 import { detectType } from '../classification/type.js';
 import { recordSearchQuery } from '../persistence/search-query.persistence.js';
 
-const SEARCH_CACHE_VERSION = 'v3';
+const SEARCH_CACHE_VERSION = 'v4';
 const cacheKey = (params) => createHash('sha256').update(JSON.stringify({ version: SEARCH_CACHE_VERSION, ...params })).digest('hex');
 const timeoutSignal = (ms) => AbortSignal.timeout(ms);
 const isProviderFailure = (status) => status === 'error' || status === 'timeout' || status === 'partial';
@@ -74,12 +74,16 @@ function matchesRequestedChartTopic(item, query) {
 }
 
 function rankAndFilter(items, allowedTypes = null, query = '') {
+  return rankInInputOrder(items, allowedTypes, query)
+    .sort((a, b) => b.score - a.score);
+}
+
+function rankInInputOrder(items, allowedTypes = null, query = '') {
   return deduplicateResults(
     items
       .map((item) => rankResult(item, query, allowedTypes))
       .filter((item) => (item.rankingSignals?.crochetConfidence ?? 0) >= CROCHET_CONFIDENCE_THRESHOLD)
       .filter((item) => !allowedTypes?.length || allowedTypes.includes(item.type))
-      .sort((a, b) => b.score - a.score)
   );
 }
 
@@ -284,14 +288,18 @@ function storedCrawlPayload(params, variants, job, results, startedAt) {
   const requestedTypes = params.somente_graficos ? ['grafico'] : params.tipo;
   const textClassifiedResults = results.map((item) => ({
     ...item,
-    type: detectType(item.url, item.type || 'imagem', {
+    // No modo gráfico do Pinterest, a própria consulta é o critério de
+    // descoberta. Metadados vazios do pin não podem apagar resultados do SERP.
+    type: params.somente_graficos ? 'grafico' : detectType(item.url, item.type || 'imagem', {
       title: item.title,
       description: item.description,
       tags: item.tags
-    })
+    }),
+    ...(params.somente_graficos ? { classificationBasis: 'pinterest_search_query' } : {})
   }));
-  const ranked = rankAndFilter(textClassifiedResults, requestedTypes, params.q)
-    .filter((item) => !params.somente_graficos || matchesRequestedChartTopic(item, params.q));
+  const ranked = params.somente_graficos
+    ? rankInInputOrder(textClassifiedResults, requestedTypes, params.q)
+    : rankAndFilter(textClassifiedResults, requestedTypes, params.q);
   return {
     query: params.q,
     expandedQueries: variants,
@@ -425,17 +433,22 @@ export async function search(params) {
       // deixam claro que o resultado é um gráfico. Reclassificar só pelo texto
       // mantém o modo somente_graficos independente de visão/Groq.
       const textClassifiedResults = onlyCharts
-        ? outcome.value.results.map((item) => ({
-            ...item,
-            type: detectType(item.url, item.type || 'imagem', {
-              title: item.title,
-              description: item.description,
-              tags: item.tags
-            })
-          }))
+        ? outcome.value.results.map((item) => {
+            const fromPinterestQuery = name === 'scraping';
+            return {
+              ...item,
+              type: fromPinterestQuery ? 'grafico' : detectType(item.url, item.type || 'imagem', {
+                title: item.title,
+                description: item.description,
+                tags: item.tags
+              }),
+              ...(fromPinterestQuery ? { classificationBasis: 'pinterest_search_query' } : {})
+            };
+          })
         : outcome.value.results;
-      grouped[name] = rankAndFilter(textClassifiedResults, requestedTypes, params.q)
-        .filter((item) => !onlyCharts || matchesRequestedChartTopic(item, params.q));
+      const rankResults = onlyCharts && name === 'scraping' ? rankInInputOrder : rankAndFilter;
+      grouped[name] = rankResults(textClassifiedResults, requestedTypes, params.q)
+        .filter((item) => !onlyCharts || name === 'scraping' || matchesRequestedChartTopic(item, params.q));
       const accepted = grouped[name].length;
       providerDetails[name] = {
         ...(outcome.value.diagnostics ?? {}),
@@ -475,7 +488,9 @@ export async function search(params) {
     imageClassification = classification.diagnostics;
   }
 
-  const allFetched = rankAndFilter(Object.values(grouped).flat(), requestedTypes, params.q);
+  const allFetched = onlyCharts && provider === 'scraping'
+    ? rankInInputOrder(Object.values(grouped).flat(), requestedTypes, params.q)
+    : rankAndFilter(Object.values(grouped).flat(), requestedTypes, params.q);
   const returnAllFetched = params.todas_paginas && ['scraping', 'valueserp', 'mix'].includes(provider);
   const selectedProviderDetails = providerDetails[provider] || {};
   const providerFailed = Object.values(providers).some(isProviderFailure);
