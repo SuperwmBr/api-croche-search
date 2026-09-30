@@ -192,7 +192,7 @@ function buildPinterestCall(params, query, crawlContext) {
     bookmark: crawlContext?.job.nextBookmark || null,
     allPages: params.todas_paginas,
     maxPages,
-    collectionMode: Boolean(params._collectionRun),
+    collectionMode: Boolean(params._collectionRun || params.max_paginas),
     signal: timeoutSignal(env.pinterestTotalTimeoutMs)
   });
 }
@@ -208,7 +208,8 @@ function buildSearxngCall(params, query, variants, source = 'all') {
     signal: timeoutSignal(env.SEARXNG_TIMEOUT_MS),
     source,
     categories: source === 'all' ? 'general' : categoriesForSource(source),
-    pages: source === 'all' ? (params._collectionRun ? 6 : 2) : params.fonte.length >= 4 ? 2 : 3
+    pages: source === 'all' ? (params._collectionRun ? 6 : 2) : params.fonte.length >= 4 ? 2 : 3,
+    maxPages: params._collectionRun ? 6 : params.max_paginas
   });
 }
 
@@ -232,11 +233,13 @@ function buildCalls(params, variants, offset, crawlContext = null) {
 
   if (!params.fonte?.length) {
     if (provider === 'searxng') return { searxng: buildSearxngCall(params, query, variants) };
-    const expandedLimit = params._collectionRun ? params.limit * (params.max_paginas || 6) : params.limit;
+    const expandedLimit = params._collectionRun || (params.todas_paginas && params.max_paginas)
+      ? params.limit * (params.max_paginas || 6)
+      : params.limit;
     const internalSignal = timeoutSignal(params._collectionRun ? env.pinterestTotalTimeoutMs : env.SEARCH_PROVIDER_TIMEOUT_MS);
     const auto = {
       internal: () => searchInternal({ query, limit: expandedLimit, offset, signal: internalSignal }).then((results) => ({ configured: env.d1Configured, results })),
-      youtube: () => searchYouTube({ query, limit: expandedLimit, signal: timeoutSignal(params._collectionRun ? env.pinterestTotalTimeoutMs : env.SEARCH_PROVIDER_TIMEOUT_MS), allPages: params._collectionRun, maxPages: params.max_paginas || 6 }),
+      youtube: () => searchYouTube({ query, limit: expandedLimit, signal: timeoutSignal(params._collectionRun ? env.pinterestTotalTimeoutMs : env.SEARCH_PROVIDER_TIMEOUT_MS), allPages: params._collectionRun || Boolean(params.todas_paginas && params.max_paginas), maxPages: params.max_paginas || 6 }),
       searxng: buildSearxngCall(params, query, variants),
       meilisearch: () => searchMeilisearch({ query, limit: expandedLimit, offset, filters, signal: timeoutSignal(params._collectionRun ? env.pinterestTotalTimeoutMs : env.MEILISEARCH_TIMEOUT_MS) })
     };
@@ -502,7 +505,9 @@ export async function search(params) {
   const allFetched = onlyCharts && provider === 'scraping'
     ? rankInInputOrder(Object.values(grouped).flat(), requestedTypes, params.q)
     : rankAndFilter(Object.values(grouped).flat(), requestedTypes, params.q);
-  const returnAllFetched = Boolean(params._collectionRun) || (params.todas_paginas && ['scraping', 'valueserp', 'mix'].includes(provider));
+  const returnAllFetched = Boolean(params._collectionRun)
+    || (params.todas_paginas && ['scraping', 'valueserp', 'mix'].includes(provider))
+    || (provider === 'auto' && params.todas_paginas && Boolean(params.max_paginas));
   const selectedProviderDetails = providerDetails[provider] || {};
   const providerFailed = Object.values(providers).some(isProviderFailure);
   const providerSkipped = Object.values(providers).some((status) => status === 'quota_exhausted' || status === 'skipped');

@@ -331,8 +331,8 @@ test('coleta completa no auto busca 6 páginas do Pinterest e SearXNG e retorna 
       searxPages += 1;
       const page = Number(parsed.searchParams.get('pageno'));
       return { ok: true, status: 200, json: async () => ({ results: Array.from({ length: 10 }, (_, index) => ({
-        title: `Crochet chart ${page}-${index}`,
-        content: 'Crochet diagram pattern',
+        title: `Biquini crochet chart ${page}-${index}`,
+        content: 'Biquini de crochet diagram pattern',
         url: `https://charts.example/${page}-${index}`
       })) }) };
     }
@@ -354,6 +354,71 @@ test('coleta completa no auto busca 6 páginas do Pinterest e SearXNG e retorna 
     assert.equal(output.providerDetails.scraping.pagesCompleted, 6);
     assert.equal(output.providerDetails.searxng.pagesCompleted, 6);
     assert.ok(output.results.length > 250);
+    assert.ok(output.results.some((item) => item.origin === 'pinterest'));
+    assert.ok(output.results.some((item) => item.provider === 'searxng'));
+  } finally {
+    globalThis.fetch = originalFetch;
+    env.d1Configured = originals.d1;
+    env.youtubeConfigured = originals.youtube;
+    env.meilisearchConfigured = originals.meili;
+    env.valueserpApiKey = originals.valueserp;
+    env.SEARXNG_URL = originals.searx;
+    env.pinterestBaseUrl = originals.pinterest;
+  }
+});
+
+test('busca rápida no auto limita Pinterest e SearXNG a 3 páginas e retorna todos os resultados coletados', async () => {
+  const originalFetch = globalThis.fetch;
+  const originals = {
+    d1: env.d1Configured,
+    youtube: env.youtubeConfigured,
+    meili: env.meilisearchConfigured,
+    valueserp: env.valueserpApiKey,
+    searx: env.SEARXNG_URL,
+    pinterest: env.pinterestBaseUrl
+  };
+  env.d1Configured = false;
+  env.youtubeConfigured = false;
+  env.meilisearchConfigured = false;
+  env.valueserpApiKey = undefined;
+  env.SEARXNG_URL = 'https://searx-quick.test';
+  env.pinterestBaseUrl = 'https://pinterest-quick.test';
+  let pinterestPages = 0;
+  let searxPages = 0;
+  globalThis.fetch = async (url) => {
+    const parsed = new URL(url);
+    if (parsed.pathname.includes('BaseSearchResource')) {
+      pinterestPages += 1;
+      const pins = Array.from({ length: 100 }, (_, index) => {
+        const n = (pinterestPages - 1) * 100 + index + 1;
+        return { id: `quick-pin-${n}`, title: `Crochet chart ${n}`, description: 'Crochet diagram', link: `https://www.pinterest.com/pin/quick-${n}/` };
+      });
+      return { ok: true, status: 200, json: async () => ({ resource_response: { data: { results: pins }, bookmark: `quick-bookmark-${pinterestPages}` } }) };
+    }
+    if (parsed.hostname === 'searx-quick.test') {
+      searxPages += 1;
+      const page = Number(parsed.searchParams.get('pageno'));
+      return { ok: true, status: 200, json: async () => ({ results: Array.from({ length: 10 }, (_, index) => ({
+        title: `Biquini crochet chart ${page}-${index}`,
+        content: 'Biquini de crochet diagram pattern',
+        url: `https://quick-charts.example/${page}-${index}`
+      })) }) };
+    }
+    return { ok: false, status: 503, json: async () => ({}) };
+  };
+  try {
+    const output = await search({
+      q: 'biquini de croche', page: 1, limit: 250, limit_por_fonte: 20,
+      provedor: 'auto', provider: undefined, todas_paginas: true, max_paginas: 3,
+      tipo: undefined, fonte: undefined, idioma: undefined, nivel: undefined,
+      tecnica: undefined, material: undefined, duracao_maxima: undefined,
+      data_inicio: undefined, data_fim: undefined, sort: 'relevancia', safe_search: '1',
+      somente_graficos: true, incluir_valueserp: false, _bypassCache: true
+    });
+    assert.equal(pinterestPages, 3);
+    assert.equal(searxPages, 3);
+    assert.ok(output.results.length > 250);
+    assert.equal(output.limitMode, 'all_pages');
     assert.ok(output.results.some((item) => item.origin === 'pinterest'));
     assert.ok(output.results.some((item) => item.provider === 'searxng'));
   } finally {

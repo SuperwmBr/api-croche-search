@@ -37,7 +37,7 @@ function collectMatches(bodies, source) {
   return { rawResults, matched };
 }
 
-export async function searchSearxng({ query, queries, limit, targetResults = limit, safeSearch, signal, source = 'all', categories = 'general', pages = 1 }) {
+export async function searchSearxng({ query, queries, limit, targetResults = limit, safeSearch, signal, source = 'all', categories = 'general', pages = 1, maxPages = 6 }) {
   const queryVariants = Array.isArray(queries) && queries.length ? [...new Set(queries)] : [query];
   const primaryQuery = queryVariants[0];
   // SearXNG costuma entregar cerca de 10 resultados por página. Quando o cliente
@@ -45,7 +45,8 @@ export async function searchSearxng({ query, queries, limit, targetResults = lim
   // com teto de 5 para evitar explosão de requisições.
   const pagesNeeded = Math.ceil(Math.max(1, targetResults) / 10);
   const requestedPages = Math.max(pages, pagesNeeded);
-  const pageCap = Math.max(1, Math.min(requestedPages, 6));
+  const requestBudget = Math.max(1, Math.min(Number(maxPages) || 6, 6));
+  const pageCap = Math.max(1, Math.min(requestedPages, requestBudget));
   const pageNumbers = Array.from({ length: pageCap }, (_, index) => index + 1);
   const primary = await settleRequests(pageNumbers.map((page) => ({ query: primaryQuery, safeSearch, categories, page, signal })));
   const allBodies = [...primary.bodies];
@@ -56,7 +57,7 @@ export async function searchSearxng({ query, queries, limit, targetResults = lim
   // `pages` is also the total request budget for a collection run. Once all
   // six primary pages were fetched, fallback query variants must not silently
   // turn a six-page request into seven or more network requests.
-  if (matched.length < targetResults && queryVariants.length > 1 && pageNumbers.length < 6 && !signal?.aborted) {
+  if (matched.length < targetResults && queryVariants.length > 1 && pageNumbers.length < requestBudget && !signal?.aborted) {
     fallbackUsed = true;
     const fallback = await settleRequests(queryVariants.slice(1).map((fallbackQuery) => ({ query: fallbackQuery, safeSearch, categories, page: 1, signal })));
     allBodies.push(...fallback.bodies);

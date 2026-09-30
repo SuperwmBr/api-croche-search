@@ -87,35 +87,33 @@ export async function searchPinterest({ query, queries = [], limit = 20, bookmar
     const seen = new Set();
     const diagnostics = [];
     const totalPageBudget = collectionMode ? Math.max(1, maxPages || env.pinterestMaxPages) : queryVariants.length;
-    let pagesUsed = 0;
-    for (let index = 0; index < queryVariants.length; index += 1) {
-      const variant = queryVariants[index];
-      // Buscas comuns preservam uma página por variante. A coleta completa
-      // distribui um orçamento total de até seis páginas entre as variantes,
-      // priorizando a consulta original e sem ultrapassar o teto pedido.
-      const pagesLeft = Math.max(1, totalPageBudget - pagesUsed);
-      const variantsLeft = queryVariants.length - index;
-      const pageBudget = collectionMode && allPages
-        ? Math.max(1, Math.min(pagesLeft - variantsLeft + 1, Math.ceil(pagesLeft / variantsLeft)))
-        : 1;
+    const selectedVariants = collectionMode ? queryVariants.slice(0, totalPageBudget) : queryVariants;
+    const basePages = collectionMode && allPages ? Math.floor(totalPageBudget / selectedVariants.length) : 1;
+    const extraPages = collectionMode && allPages ? totalPageBudget % selectedVariants.length : 0;
+    // Consulta as variantes em paralelo para a primeira leva não esperar uma
+    // sequência de round trips ao Pinterest. A soma dos limites continua
+    // dentro do orçamento total definido para esta busca.
+    const outcomes = await Promise.all(selectedVariants.map(async (variant, index) => {
+      const pageBudget = basePages + (index < extraPages ? 1 : 0);
       try {
-        const output = await searchPinterest({
+        return await searchPinterest({
           query: variant,
           limit,
           allPages: Boolean(collectionMode && allPages),
           maxPages: pageBudget,
           signal
         });
-        diagnostics.push(output.diagnostics);
-        pagesUsed += Number(output.diagnostics?.pagesCompleted || 0);
-        for (const item of output.results) {
-          const key = item.externalId || item.url;
-          if (seen.has(key)) continue;
-          seen.add(key);
-          results.push(item);
-        }
       } catch (error) {
-        diagnostics.push({ pagesRequested: 0, pagesCompleted: 0, error: error?.message || 'pinterest_query_failed' });
+        return { results: [], diagnostics: { pagesRequested: 0, pagesCompleted: 0, error: error?.message || 'pinterest_query_failed' } };
+      }
+    }));
+    for (const output of outcomes) {
+      diagnostics.push(output.diagnostics);
+      for (const item of output.results) {
+        const key = item.externalId || item.url;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        results.push(item);
       }
     }
     return {
