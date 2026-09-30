@@ -160,11 +160,26 @@ async function persistLateValueSerpResults(params, outcome) {
   });
 }
 
-function buildPinterestCall(params, query, crawlContext) {
+function chartSearchVariants(query, variants, params, crawlContext) {
+  if (!params.somente_graficos || params.todas_paginas || crawlContext) return [query];
+  const normalized = normalizeSearchText(query);
+  if (!/\b(grafico|graficos|diagrama|diagramas|chart|charts|esquema)\b/.test(normalized)) return [query];
+  const english = normalized
+    .replace(/\bbiquini\b/g, 'bikini')
+    .replace(/\bcroche\b/g, 'crochet')
+    .split(/\s+/)
+    .filter((term) => !['de', 'da', 'do', 'das', 'dos', 'em', 'com'].includes(term))
+    .join(' ');
+  const candidates = [query, ...(variants || []).slice(1, 3), english];
+  return [...new Set(candidates.map((value) => value.trim()).filter(Boolean))].slice(0, 4);
+}
+
+function buildPinterestCall(params, query, variants, crawlContext) {
   const batchLimit = Math.min(params.lote_paginas || env.pinterestBatchMaxPages, env.pinterestBatchMaxPages);
   const maxPages = Math.min(params.max_paginas || batchLimit, batchLimit);
   return () => searchPinterest({
     query,
+    queries: chartSearchVariants(query, variants, params, crawlContext),
     limit: params.limit,
     bookmark: crawlContext?.job.nextBookmark || null,
     allPages: params.todas_paginas,
@@ -198,10 +213,10 @@ function buildCalls(params, variants, offset, crawlContext = null) {
   ].filter(Boolean);
 
   if (provider === 'valueserp') return { valueserp: buildValueSerpCall(params, query) };
-  if (provider === 'scraping') return { scraping: buildPinterestCall(params, query, crawlContext) };
+  if (provider === 'scraping') return { scraping: buildPinterestCall(params, query, variants, crawlContext) };
   if (provider === 'mix') {
     return {
-      scraping: buildPinterestCall(params, query, crawlContext),
+      scraping: buildPinterestCall(params, query, variants, crawlContext),
       valueserp: buildValueSerpCall(params, query)
     };
   }

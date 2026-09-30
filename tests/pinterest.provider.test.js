@@ -53,6 +53,50 @@ test('scraping do Pinterest devolve bookmark quando o lote termina com mais pág
   }
 });
 
+test('busca com variantes deduplica pins e aproveita metadados alternativos sem texto em branco', async () => {
+  const originalFetch = globalThis.fetch;
+  const requestedQueries = [];
+  globalThis.fetch = async (url) => {
+    const parsed = new URL(url);
+    const request = JSON.parse(parsed.searchParams.get('data'));
+    requestedQueries.push(request.options.query);
+    const pin = request.options.query === 'biquini de croche chart'
+      ? {
+          id: 'same-pin', title: '  ', description: '\n ', auto_alt_text: 'Bikini crochet chart diagram',
+          link: 'https://www.pinterest.com/pin/same-pin/',
+          images: { orig: { url: 'https://i.pinimg.com/originals/same.jpg' } }
+        }
+      : {
+          id: 'english-pin', title: '', description: '',
+          rich_summary: { title: 'Bikini crochet chart', description: 'Crochet diagram' },
+          link: 'https://www.pinterest.com/pin/english-pin/'
+        };
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ resource_response: { data: { results: [pin] }, bookmark: null } })
+    };
+  };
+
+  try {
+    const output = await searchPinterest({
+      query: 'biquini de croche chart',
+      queries: ['bikini crochet chart'],
+      allPages: false,
+      maxPages: 1,
+      signal: AbortSignal.timeout(1000)
+    });
+    assert.deepEqual(requestedQueries, ['biquini de croche chart', 'bikini crochet chart']);
+    assert.equal(output.results.length, 2);
+    assert.equal(output.results[0].title, 'Bikini crochet chart diagram');
+    assert.equal(output.results[0].type, 'grafico');
+    assert.equal(output.results[1].title, 'Bikini crochet chart');
+    assert.equal(output.diagnostics.queriesRequested, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('scraping do Pinterest preserva o lote quando uma página posterior falha', async () => {
   const originalFetch = globalThis.fetch;
   let calls = 0;

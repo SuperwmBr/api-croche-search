@@ -133,6 +133,7 @@ test('somente_graficos filtra por metadados sem chamar Groq por padrão', async 
 
     assert.deepEqual(output.results.map((item) => item.id), ['pinterest:bikini-chart']);
     assert.equal(output.results[0].type, 'grafico');
+    assert.ok(output.providerDetails.scraping.queriesRequested > 1);
     assert.equal(groqCalled, false);
     assert.equal(output.enrichment.imageClassification, undefined);
   } finally {

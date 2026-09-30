@@ -14,6 +14,12 @@ function pinUrl(pin, image) {
   return pin?.link || (pin?.id ? `https://www.pinterest.com/pin/${pin.id}/` : image);
 }
 
+function firstText(...values) {
+  return values
+    .map((value) => String(value ?? '').replace(/\s+/g, ' ').trim())
+    .find(Boolean) || '';
+}
+
 function requestSignal(signal) {
   if (!signal) return AbortSignal.timeout(env.pinterestTimeoutMs);
   if (typeof AbortSignal.any === 'function') {
@@ -26,20 +32,35 @@ function toResult(pin, page, index) {
   const image = imageFromPin(pin);
   const url = pinUrl(pin, image);
   if (!url) return null;
+  const title = firstText(
+    pin?.title,
+    pin?.grid_title,
+    pin?.rich_summary?.title,
+    pin?.seo_data?.title,
+    pin?.auto_alt_text,
+    pin?.description
+  );
+  const description = firstText(
+    pin?.description,
+    pin?.rich_summary?.description,
+    pin?.seo_data?.description,
+    pin?.auto_alt_text,
+    pin?.grid_title
+  );
   return {
     id: `pinterest:${pin?.id || `${page}-${index + 1}`}`,
     externalId: String(pin?.id || `${page}-${index + 1}`),
     // Usa título/descrição para reconhecer gráficos sem depender de um
     // classificador visual externo. A Groq continua disponível como opção.
     type: detectType(url, 'imagem', {
-      title: pin?.title || pin?.grid_title || pin?.description,
-      description: pin?.description || pin?.grid_title
+      title,
+      description
     }),
     origin: sourceFromUrl(url, 'pinterest'),
     provider: 'pinterest_scraping',
     engine: 'pinterest',
-    title: pin?.title || pin?.grid_title || pin?.description || 'Pin de crochê',
-    description: pin?.description || pin?.grid_title || '',
+    title: title || 'Pin de crochê',
+    description,
     url,
     image: image || null,
     author: pin?.pinner?.full_name || pin?.pinner?.username || null,
@@ -57,7 +78,55 @@ function toResult(pin, page, index) {
   };
 }
 
-export async function searchPinterest({ query, limit = 20, bookmark = null, allPages = true, maxPages, signal }) {
+export async function searchPinterest({ query, queries = [], limit = 20, bookmark = null, allPages = true, maxPages, signal }) {
+  const queryVariants = [...new Set([query, ...queries]
+    .map((value) => String(value || '').replace(/\s+/g, ' ').trim())
+    .filter(Boolean))].slice(0, 4);
+  if (queryVariants.length > 1 && !bookmark) {
+    const results = [];
+    const seen = new Set();
+    const diagnostics = [];
+    for (const variant of queryVariants) {
+      // Uma página por variante mantém a coleta limitada e permite comparar
+      // títulos do Pinterest em português e inglês sem usar classificação IA.
+      try {
+        const output = await searchPinterest({
+          query: variant,
+          limit,
+          allPages: false,
+          maxPages: 1,
+          signal
+        });
+        diagnostics.push(output.diagnostics);
+        for (const item of output.results) {
+          const key = item.externalId || item.url;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          results.push(item);
+        }
+      } catch (error) {
+        diagnostics.push({ pagesRequested: 0, pagesCompleted: 0, error: error?.message || 'pinterest_query_failed' });
+      }
+    }
+    return {
+      configured: true,
+      partial: diagnostics.some((item) => Boolean(item.error)),
+      results,
+      diagnostics: {
+        pagesRequested: diagnostics.reduce((sum, item) => sum + item.pagesRequested, 0),
+        pagesCompleted: diagnostics.reduce((sum, item) => sum + item.pagesCompleted, 0),
+        maxPages: 1,
+        allPages: false,
+        hasMore: false,
+        nextBookmark: null,
+        error: diagnostics.find((item) => item.error)?.error || null,
+        rawResults: results.length,
+        queriesRequested: queryVariants.length,
+        queriesCompleted: diagnostics.filter((item) => item.pagesCompleted > 0).length
+      }
+    };
+  }
+
   const results = [];
   const bookmarks = new Set();
   let currentBookmark = bookmark || null;
