@@ -116,7 +116,7 @@ function buildValueSerpAutoCall(params, query) {
     // timeout próprio de até 15s, mas a resposta HTTP usa uma janela curta.
     // Se ele continuar lento, o resultado é persistido em segundo plano.
     // A busca dedicada (provedor=valueserp) continua usando o limite completo.
-    const AUTO_MAX_PAGES = 4;
+    const AUTO_MAX_PAGES = params._collectionRun ? 6 : 4;
     const outcome = await searchValueSerp({
       query,
       limit: params.limit,
@@ -124,7 +124,7 @@ function buildValueSerpAutoCall(params, query) {
       allPages: true,
       maxPages: Math.min(params.max_paginas || env.valueserpSyncDefaultMaxPages, remaining, AUTO_MAX_PAGES),
       searchType: params.valueserp_tipo || 'images',
-      signal: timeoutSignal(Math.min(env.valueserpTotalTimeoutMs, env.valueserpTimeoutMs))
+      signal: timeoutSignal(params._collectionRun ? env.valueserpTotalTimeoutMs : Math.min(env.valueserpTotalTimeoutMs, env.valueserpTimeoutMs))
     });
     const callsMade = Number(outcome.diagnostics?.pagesRequested || 0);
     await addValueSerpUsage(callsMade);
@@ -182,7 +182,9 @@ function chartSearchVariants(query, params, crawlContext) {
 
 function buildPinterestCall(params, query, crawlContext) {
   const batchLimit = Math.min(params.lote_paginas || env.pinterestBatchMaxPages, env.pinterestBatchMaxPages);
-  const maxPages = Math.min(params.max_paginas || batchLimit, batchLimit);
+  const maxPages = params._collectionRun
+    ? Math.min(params.max_paginas || 6, env.pinterestMaxPages)
+    : Math.min(params.max_paginas || batchLimit, batchLimit);
   return () => searchPinterest({
     query,
     queries: chartSearchVariants(query, params, crawlContext),
@@ -190,6 +192,7 @@ function buildPinterestCall(params, query, crawlContext) {
     bookmark: crawlContext?.job.nextBookmark || null,
     allPages: params.todas_paginas,
     maxPages,
+    collectionMode: Boolean(params._collectionRun),
     signal: timeoutSignal(env.pinterestTotalTimeoutMs)
   });
 }
@@ -205,7 +208,7 @@ function buildSearxngCall(params, query, variants, source = 'all') {
     signal: timeoutSignal(env.SEARXNG_TIMEOUT_MS),
     source,
     categories: source === 'all' ? 'general' : categoriesForSource(source),
-    pages: source === 'all' ? 2 : params.fonte.length >= 4 ? 2 : 3
+    pages: source === 'all' ? (params._collectionRun ? 6 : 2) : params.fonte.length >= 4 ? 2 : 3
   });
 }
 
@@ -229,15 +232,16 @@ function buildCalls(params, variants, offset, crawlContext = null) {
 
   if (!params.fonte?.length) {
     if (provider === 'searxng') return { searxng: buildSearxngCall(params, query, variants) };
+    const expandedLimit = params._collectionRun ? params.limit * (params.max_paginas || 6) : params.limit;
+    const internalSignal = timeoutSignal(params._collectionRun ? env.pinterestTotalTimeoutMs : env.SEARCH_PROVIDER_TIMEOUT_MS);
     const auto = {
-      internal: () => searchInternal({ query, limit: params.limit, offset, signal: timeoutSignal(env.SEARCH_PROVIDER_TIMEOUT_MS) }).then((results) => ({ configured: env.d1Configured, results })),
-      youtube: () => searchYouTube({ query, limit: params.limit, signal: timeoutSignal(env.SEARCH_PROVIDER_TIMEOUT_MS) }),
+      internal: () => searchInternal({ query, limit: expandedLimit, offset, signal: internalSignal }).then((results) => ({ configured: env.d1Configured, results })),
+      youtube: () => searchYouTube({ query, limit: expandedLimit, signal: timeoutSignal(params._collectionRun ? env.pinterestTotalTimeoutMs : env.SEARCH_PROVIDER_TIMEOUT_MS), allPages: params._collectionRun, maxPages: params.max_paginas || 6 }),
       searxng: buildSearxngCall(params, query, variants),
-      meilisearch: () => searchMeilisearch({ query, limit: params.limit, offset, filters, signal: timeoutSignal(env.MEILISEARCH_TIMEOUT_MS) })
+      meilisearch: () => searchMeilisearch({ query, limit: expandedLimit, offset, filters, signal: timeoutSignal(params._collectionRun ? env.pinterestTotalTimeoutMs : env.MEILISEARCH_TIMEOUT_MS) })
     };
-    // No modo gráfico do Radar, Pinterest entra como fonte adicional. Não
-    // substitui os provedores já ativos no `auto`.
-    if (params.somente_graficos) auto.scraping = buildPinterestCall(params, query, crawlContext);
+    // Pinterest complementa as demais fontes do modo auto, com ou sem filtro de gráficos.
+    auto.scraping = buildPinterestCall(params, query, crawlContext);
     // O ValueSerp complementar é iniciado separadamente com retorno
     // antecipado controlado. Ele não pode bloquear D1, YouTube e SearXNG.
     return auto;
@@ -332,7 +336,7 @@ function storedCrawlPayload(params, variants, job, results, startedAt) {
 
 export async function search(params) {
   const key = cacheKey(params);
-  const cached = memoryCache.get(key);
+  const cached = params._bypassCache ? null : memoryCache.get(key);
   if (cached && !cached.partial) {
     logSearchQuery(params, { resultCount: cached.total, partial: cached.partial, durationMs: 0 });
     return { ...cached, cache: { layer: 'memory', hit: true } };
@@ -373,7 +377,7 @@ export async function search(params) {
         partial: payload.partial,
         durationMs: payload.elapsedMs
       });
-      if (payload.collectionComplete) memoryCache.set(key, payload);
+      if (payload.collectionComplete && !params._bypassCache) memoryCache.set(key, payload);
       return payload;
     }
     crawlContext = claimedCrawl;
@@ -386,7 +390,9 @@ export async function search(params) {
   const coreNames = Object.keys(calls);
   const coreSettledPromise = Promise.allSettled(coreNames.map((name) => calls[name]()));
   const valueSerpEarly = valueSerpTask
-    ? await waitForValueSerpWindow(valueSerpTask, env.valueserpEarlyReturnMs)
+    ? params._collectionRun
+      ? { timedOut: false, outcome: await valueSerpTask }
+      : await waitForValueSerpWindow(valueSerpTask, env.valueserpEarlyReturnMs)
     : null;
   const settledCore = await coreSettledPromise;
   const names = [...coreNames];
@@ -496,7 +502,7 @@ export async function search(params) {
   const allFetched = onlyCharts && provider === 'scraping'
     ? rankInInputOrder(Object.values(grouped).flat(), requestedTypes, params.q)
     : rankAndFilter(Object.values(grouped).flat(), requestedTypes, params.q);
-  const returnAllFetched = params.todas_paginas && ['scraping', 'valueserp', 'mix'].includes(provider);
+  const returnAllFetched = Boolean(params._collectionRun) || (params.todas_paginas && ['scraping', 'valueserp', 'mix'].includes(provider));
   const selectedProviderDetails = providerDetails[provider] || {};
   const providerFailed = Object.values(providers).some(isProviderFailure);
   const providerSkipped = Object.values(providers).some((status) => status === 'quota_exhausted' || status === 'skipped');
@@ -622,6 +628,6 @@ export async function search(params) {
     partial: payload.partial,
     durationMs: payload.elapsedMs
   });
-  if (!payload.partial && (!crawlJob || crawlJob.status === 'complete')) memoryCache.set(key, payload);
+  if (!payload.partial && (!crawlJob || crawlJob.status === 'complete') && !params._bypassCache) memoryCache.set(key, payload);
   return payload;
 }

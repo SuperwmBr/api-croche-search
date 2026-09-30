@@ -58,13 +58,24 @@ A classificação é opcional e fica desligada por padrão. Ela usa o modelo mul
 
 Configure `GROQ_API_KEY` no ambiente do servidor para habilitar o recurso. A chave nunca deve ser enviada ao navegador. Sem chave, a busca continua normalmente e o resumo informa que a classificação não está configurada. Cada imagem analisada gera uma chamada ao modelo e pode ter custo conforme a conta e os limites da Groq.
 
-Para pesquisar gráficos pelo termo no Pinterest sem exigir que título ou descrição do pin repitam as palavras da busca, use `somente_graficos=1`. Com `provedor=auto`, a API preserva D1, YouTube, SearXNG e Meilisearch e soma Pinterest; se `incluir_valueserp=1` também estiver presente, a ValueSerp continua complementar. A API trata os pins retornados pela busca do Pinterest como candidatos a gráfico (`classificationBasis: "pinterest_search_query"`) e não chama a Groq. Isso prioriza capturar os resultados que o Pinterest mostra, inclusive quando os metadados vêm vazios; a API não confirma visualmente o conteúdo. A ordem original do Pinterest é mantida. Para buscas genéricas como `grafico de croche`, a consulta enviada é exatamente essa frase; buscas com um assunto específico, como biquíni, também usam variantes em português e inglês, que são combinadas e deduplicadas. Títulos e descrições usam campos alternativos quando os campos principais vêm vazios. No `auto`, `todas_paginas=1` percorre até `PINTEREST_BATCH_MAX_PAGES` páginas (3 por padrão); a resposta combinada continua sujeita ao `limit` solicitado (máximo 250):
+Para pesquisar gráficos pelo termo no Pinterest sem exigir que título ou descrição do pin repitam as palavras da busca, use `somente_graficos=1`. Com `provedor=auto`, a API preserva D1, YouTube, SearXNG e Meilisearch e soma Pinterest; se `incluir_valueserp=1` também estiver presente, a ValueSerp continua complementar. A API trata os pins retornados pela busca do Pinterest como candidatos a gráfico (`classificationBasis: "pinterest_search_query"`) e não chama a Groq. Isso prioriza capturar os resultados que o Pinterest mostra, inclusive quando os metadados vêm vazios; a API não confirma visualmente o conteúdo. Para buscas genéricas como `grafico de croche`, a consulta enviada é exatamente essa frase; buscas com um assunto específico, como biquíni, também usam variantes em português e inglês, que são combinadas e deduplicadas. Títulos e descrições usam campos alternativos quando os campos principais vêm vazios. A busca síncrona mantém o limite normal de páginas e de resposta (máximo 250):
 
 ```http
 GET /api/busca?q=flor+de+croche&provedor=auto&somente_graficos=1&incluir_valueserp=1&todas_paginas=1&max_paginas=3&limit=250
 ```
 
-A análise visual opcional está limitada a `VISION_MAX_IMAGES_PER_SEARCH` imagens candidatas por busca (5 por padrão), e depende de `GROQ_API_KEY`. Para combinar o filtro de gráficos com a verificação visual, envie `somente_graficos=1&identificar_graficos=1`. Sem `identificar_graficos=1`, a chave não é necessária. Em buscas paginadas, variantes adicionais não são usadas, preservando a continuidade do bookmark do Pinterest.
+### Coleta completa do Radar
+
+Para uma pesquisa longa que combina os provedores, use `coleta_assincrona=1`. Ela exige D1 configurado na API, grava o estado e os resultados e evita manter a conexão HTTP aberta enquanto Pinterest, YouTube, SearXNG, ValueSerp e os índices internos terminam. O modo `auto` consulta todos os provedores configurados; ValueSerp só é chamado quando `incluir_valueserp=1`. O filtro `somente_graficos=1` é aplicado aos resultados de todas as fontes. O limite por fonte é de até seis páginas; fontes com paginação própria podem encerrar antes, e fontes com limite diário (ValueSerp) respeitam o orçamento disponível.
+
+```http
+GET /api/busca?q=biquini+de+croche&provedor=auto&coleta_assincrona=1&somente_graficos=1&incluir_valueserp=1&todas_paginas=1&max_paginas=6&limit=250
+GET /api/busca/coletas/search_<id>?page=1&limit=250
+```
+
+A primeira chamada responde `202` com `collection.id` e `collection.statusUrl`. Consulte o status até `collection.complete=true`. A consulta de coleção retorna resultados ordenados e paginados; use `total` para buscar todas as páginas. Status `partial` informa que uma fonte falhou, atingiu uma quota ou ainda tinha páginas depois do teto configurado.
+
+A análise visual opcional está limitada a `VISION_MAX_IMAGES_PER_SEARCH` imagens candidatas por busca (5 por padrão), e depende de `GROQ_API_KEY`. Para combinar o filtro de gráficos com a verificação visual, envie `somente_graficos=1&identificar_graficos=1`. Sem `identificar_graficos=1`, a chave não é necessária. Na coleta completa, as variantes específicas da consulta são combinadas no orçamento total de até seis páginas do Pinterest; o caminho normal mantém o número de páginas atual por variante.
 
 O ScrapeGraphAI e a classificação visual têm funções diferentes: ScrapeGraphAI extrai dados estruturados de páginas; a classificação acima envia a imagem para um modelo com visão da Groq. O crawler dedicado do Pinterest já existente nesta API é o que busca pins, pagina resultados e persiste o acervo no D1.
 

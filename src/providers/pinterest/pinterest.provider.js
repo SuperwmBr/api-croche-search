@@ -78,7 +78,7 @@ function toResult(pin, page, index) {
   };
 }
 
-export async function searchPinterest({ query, queries = [], limit = 20, bookmark = null, allPages = true, maxPages, signal }) {
+export async function searchPinterest({ query, queries = [], limit = 20, bookmark = null, allPages = true, maxPages, collectionMode = false, signal }) {
   const queryVariants = [...new Set([query, ...queries]
     .map((value) => String(value || '').replace(/\s+/g, ' ').trim())
     .filter(Boolean))].slice(0, 4);
@@ -86,18 +86,28 @@ export async function searchPinterest({ query, queries = [], limit = 20, bookmar
     const results = [];
     const seen = new Set();
     const diagnostics = [];
-    for (const variant of queryVariants) {
-      // Uma página por variante mantém a coleta limitada e permite comparar
-      // títulos do Pinterest em português e inglês sem usar classificação IA.
+    const totalPageBudget = collectionMode ? Math.max(1, maxPages || env.pinterestMaxPages) : queryVariants.length;
+    let pagesUsed = 0;
+    for (let index = 0; index < queryVariants.length; index += 1) {
+      const variant = queryVariants[index];
+      // Buscas comuns preservam uma página por variante. A coleta completa
+      // distribui um orçamento total de até seis páginas entre as variantes,
+      // priorizando a consulta original e sem ultrapassar o teto pedido.
+      const pagesLeft = Math.max(1, totalPageBudget - pagesUsed);
+      const variantsLeft = queryVariants.length - index;
+      const pageBudget = collectionMode && allPages
+        ? Math.max(1, Math.min(pagesLeft - variantsLeft + 1, Math.ceil(pagesLeft / variantsLeft)))
+        : 1;
       try {
         const output = await searchPinterest({
           query: variant,
           limit,
-          allPages: false,
-          maxPages: 1,
+          allPages: Boolean(collectionMode && allPages),
+          maxPages: pageBudget,
           signal
         });
         diagnostics.push(output.diagnostics);
+        pagesUsed += Number(output.diagnostics?.pagesCompleted || 0);
         for (const item of output.results) {
           const key = item.externalId || item.url;
           if (seen.has(key)) continue;
@@ -110,15 +120,15 @@ export async function searchPinterest({ query, queries = [], limit = 20, bookmar
     }
     return {
       configured: true,
-      partial: diagnostics.some((item) => Boolean(item.error)),
+      partial: diagnostics.some((item) => Boolean(item.error) || Boolean(item.hasMore)),
       results,
       diagnostics: {
         pagesRequested: diagnostics.reduce((sum, item) => sum + item.pagesRequested, 0),
         pagesCompleted: diagnostics.reduce((sum, item) => sum + item.pagesCompleted, 0),
-        maxPages: 1,
-        allPages: false,
-        hasMore: false,
-        nextBookmark: null,
+        maxPages: collectionMode ? totalPageBudget : 1,
+        allPages: Boolean(collectionMode && allPages),
+        hasMore: diagnostics.some((item) => Boolean(item.hasMore)),
+        nextBookmark: diagnostics.find((item) => item.nextBookmark)?.nextBookmark || null,
         error: diagnostics.find((item) => item.error)?.error || null,
         rawResults: results.length,
         queriesRequested: queryVariants.length,

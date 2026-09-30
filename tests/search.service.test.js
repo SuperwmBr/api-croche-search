@@ -299,6 +299,74 @@ test('provedor auto mantém as fontes existentes e soma Pinterest no modo gráfi
   }
 });
 
+test('coleta completa no auto busca 6 páginas do Pinterest e SearXNG e retorna acima do teto antigo de 250', async () => {
+  const originalFetch = globalThis.fetch;
+  const originals = {
+    d1: env.d1Configured,
+    youtube: env.youtubeConfigured,
+    meili: env.meilisearchConfigured,
+    valueserp: env.valueserpApiKey,
+    searx: env.SEARXNG_URL,
+    pinterest: env.pinterestBaseUrl
+  };
+  env.d1Configured = false;
+  env.youtubeConfigured = false;
+  env.meilisearchConfigured = false;
+  env.valueserpApiKey = undefined;
+  env.SEARXNG_URL = 'https://searx-collection.test';
+  env.pinterestBaseUrl = 'https://pinterest-collection.test';
+  let pinterestPages = 0;
+  let searxPages = 0;
+  globalThis.fetch = async (url) => {
+    const parsed = new URL(url);
+    if (parsed.pathname.includes('BaseSearchResource')) {
+      pinterestPages += 1;
+      const pins = Array.from({ length: 50 }, (_, index) => {
+        const n = (pinterestPages - 1) * 50 + index + 1;
+        return { id: `pin-${n}`, title: `Crochet chart ${n}`, description: 'Crochet chart', link: `https://www.pinterest.com/pin/pin-${n}/` };
+      });
+      return { ok: true, status: 200, json: async () => ({ resource_response: { data: { results: pins }, bookmark: pinterestPages < 6 ? `bookmark-${pinterestPages}` : null } }) };
+    }
+    if (parsed.hostname === 'searx-collection.test') {
+      searxPages += 1;
+      const page = Number(parsed.searchParams.get('pageno'));
+      return { ok: true, status: 200, json: async () => ({ results: Array.from({ length: 10 }, (_, index) => ({
+        title: `Crochet chart ${page}-${index}`,
+        content: 'Crochet diagram pattern',
+        url: `https://charts.example/${page}-${index}`
+      })) }) };
+    }
+    return { ok: false, status: 503, json: async () => ({}) };
+  };
+
+  try {
+    const output = await search({
+      q: 'crochet chart', page: 1, limit: 250, limit_por_fonte: 20,
+      provedor: 'auto', provider: undefined, todas_paginas: true, max_paginas: 6,
+      tipo: undefined, fonte: undefined, idioma: undefined, nivel: undefined,
+      tecnica: undefined, material: undefined, duracao_maxima: undefined,
+      data_inicio: undefined, data_fim: undefined, sort: 'relevancia', safe_search: '1',
+      somente_graficos: false, incluir_valueserp: false, _collectionRun: true, _bypassCache: true
+    });
+
+    assert.equal(pinterestPages, 6);
+    assert.equal(searxPages, 6);
+    assert.equal(output.providerDetails.scraping.pagesCompleted, 6);
+    assert.equal(output.providerDetails.searxng.pagesCompleted, 6);
+    assert.ok(output.results.length > 250);
+    assert.ok(output.results.some((item) => item.origin === 'pinterest'));
+    assert.ok(output.results.some((item) => item.provider === 'searxng'));
+  } finally {
+    globalThis.fetch = originalFetch;
+    env.d1Configured = originals.d1;
+    env.youtubeConfigured = originals.youtube;
+    env.meilisearchConfigured = originals.meili;
+    env.valueserpApiKey = originals.valueserp;
+    env.SEARXNG_URL = originals.searx;
+    env.pinterestBaseUrl = originals.pinterest;
+  }
+});
+
 test('crawl salvo examina todos os pins antes de filtrar e respeita limite de resultados', async () => {
   const originalFetch = globalThis.fetch;
   const originalD1Configured = env.d1Configured;

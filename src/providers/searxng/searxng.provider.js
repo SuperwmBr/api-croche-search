@@ -45,14 +45,18 @@ export async function searchSearxng({ query, queries, limit, targetResults = lim
   // com teto de 5 para evitar explosão de requisições.
   const pagesNeeded = Math.ceil(Math.max(1, targetResults) / 10);
   const requestedPages = Math.max(pages, pagesNeeded);
-  const pageNumbers = Array.from({ length: Math.max(1, Math.min(requestedPages, 5)) }, (_, index) => index + 1);
+  const pageCap = Math.max(1, Math.min(requestedPages, 6));
+  const pageNumbers = Array.from({ length: pageCap }, (_, index) => index + 1);
   const primary = await settleRequests(pageNumbers.map((page) => ({ query: primaryQuery, safeSearch, categories, page, signal })));
   const allBodies = [...primary.bodies];
   const allFailures = [...primary.failures];
   let { matched, rawResults } = collectMatches(allBodies, source);
   let fallbackUsed = false;
 
-  if (matched.length < targetResults && queryVariants.length > 1 && !signal?.aborted) {
+  // `pages` is also the total request budget for a collection run. Once all
+  // six primary pages were fetched, fallback query variants must not silently
+  // turn a six-page request into seven or more network requests.
+  if (matched.length < targetResults && queryVariants.length > 1 && pageNumbers.length < 6 && !signal?.aborted) {
     fallbackUsed = true;
     const fallback = await settleRequests(queryVariants.slice(1).map((fallbackQuery) => ({ query: fallbackQuery, safeSearch, categories, page: 1, signal })));
     allBodies.push(...fallback.bodies);
