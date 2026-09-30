@@ -181,6 +181,43 @@ test('somente_graficos não descarta pins do Pinterest por metadados vazios ou s
   }
 });
 
+test('busca genérica de gráficos envia a frase exata ao Pinterest sem fan-out', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalD1Configured = env.d1Configured;
+  env.d1Configured = false;
+  const requestedQueries = [];
+  globalThis.fetch = async (url) => {
+    const request = JSON.parse(new URL(url).searchParams.get('data'));
+    requestedQueries.push(request.options.query);
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ resource_response: { data: { results: [
+        { id: 'chart-1', title: '', description: '', link: 'https://www.pinterest.com/pin/chart-1/' },
+        { id: 'chart-2', title: 'Gráfico de crochê', link: 'https://www.pinterest.com/pin/chart-2/' }
+      ] }, bookmark: 'more' } })
+    };
+  };
+
+  try {
+    const output = await search({
+      q: 'grafico de croche', page: 1, limit: 10, limit_por_fonte: 10,
+      provedor: 'scraping', provider: undefined, todas_paginas: false,
+      max_paginas: 1, tipo: undefined, fonte: undefined, idioma: undefined,
+      nivel: undefined, tecnica: undefined, material: undefined,
+      duracao_maxima: undefined, data_inicio: undefined, data_fim: undefined,
+      sort: 'relevancia', safe_search: '1', somente_graficos: true
+    });
+    assert.deepEqual(requestedQueries, ['grafico de croche']);
+    assert.equal(output.providerDetails.scraping.pagesRequested, 1);
+    assert.equal(output.providerCounts.scraping.accepted, 2);
+    assert.equal(output.results[0].id, 'pinterest:chart-1');
+  } finally {
+    globalThis.fetch = originalFetch;
+    env.d1Configured = originalD1Configured;
+  }
+});
+
 test('crawl salvo examina todos os pins antes de filtrar e respeita limite de resultados', async () => {
   const originalFetch = globalThis.fetch;
   const originalD1Configured = env.d1Configured;

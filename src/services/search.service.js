@@ -173,9 +173,10 @@ function chartSearchVariants(query, params, crawlContext) {
     .filter((term) => term.length > 2 && !CHART_TOPIC_STOP_WORDS.has(term))
     .map((term) => term === 'biquini' ? 'bikini' : term)
     .join(' ');
-  const candidates = subject
-    ? [query, `${subject} croche grafico`, `${subject} crochet chart`, `${subject} crochet diagram`]
-    : [query, 'crochet chart', 'crochet diagram'];
+  // Uma busca genérica deve reproduzir a frase enviada ao Pinterest. Variantes
+  // amplas como "crochet chart" misturam SERPs diferentes e reduzem a precisão.
+  if (!subject) return [query];
+  const candidates = [query, `${subject} croche grafico`, `${subject} crochet chart`, `${subject} crochet diagram`];
   return [...new Set(candidates.map((value) => value.trim()).filter(Boolean))].slice(0, 4);
 }
 
