@@ -129,7 +129,7 @@ export async function searchPinterest({ query, queries = [], limit = 20, bookmar
         nextBookmark: diagnostics.find((item) => item.nextBookmark)?.nextBookmark || null,
         error: diagnostics.find((item) => item.error)?.error || null,
         rawResults: results.length,
-        queriesRequested: queryVariants.length,
+        queriesRequested: selectedVariants.length,
         queriesCompleted: diagnostics.filter((item) => item.pagesCompleted > 0).length
       }
     };

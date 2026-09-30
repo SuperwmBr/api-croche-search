@@ -192,7 +192,7 @@ function buildPinterestCall(params, query, crawlContext) {
     bookmark: crawlContext?.job.nextBookmark || null,
     allPages: params.todas_paginas,
     maxPages,
-    collectionMode: Boolean(params._collectionRun || params.max_paginas),
+    collectionMode: Boolean(params._collectionRun || ((params.provedor === 'auto' || params.provider === 'auto') && params.max_paginas)),
     signal: timeoutSignal(env.pinterestTotalTimeoutMs)
   });
 }
