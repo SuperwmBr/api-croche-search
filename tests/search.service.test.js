@@ -142,6 +142,132 @@ test('somente_graficos filtra por metadados sem chamar Groq por padrão', async 
   }
 });
 
+test('contadores de somente_graficos não aceitam foto relacionada ao assunto como gráfico', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalD1Configured = env.d1Configured;
+  env.d1Configured = false;
+  globalThis.fetch = async () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({ resource_response: { data: { results: [
+      { id: 'bikini-photo', title: 'Bikini crochet top', description: 'Crochet swimsuit', link: 'https://www.pinterest.com/pin/bikini-photo/', images: { orig: { url: 'https://i.pinimg.com/originals/bikini-photo.jpg' } } },
+      { id: 'flower-chart', title: 'Crochet chart flower', description: 'Crochet diagram', link: 'https://www.pinterest.com/pin/flower-chart/', images: { orig: { url: 'https://i.pinimg.com/originals/flower-chart.jpg' } } }
+    ] }, bookmark: null } })
+  });
+
+  try {
+    const output = await search({
+      q: 'biquini de croche chart', page: 1, limit: 5, limit_por_fonte: 5,
+      provedor: 'scraping', provider: undefined, todas_paginas: false,
+      max_paginas: 1, tipo: undefined, fonte: undefined, idioma: undefined,
+      nivel: undefined, tecnica: undefined, material: undefined,
+      duracao_maxima: undefined, data_inicio: undefined, data_fim: undefined,
+      sort: 'relevancia', safe_search: '1', somente_graficos: true
+    });
+
+    assert.equal(output.providerCounts.scraping.fetched, 2);
+    assert.equal(output.providerCounts.scraping.accepted, 0);
+    assert.equal(output.providerCounts.scraping.returned, 0);
+    assert.equal(output.totalFetched, 0);
+    assert.equal(output.total, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+    env.d1Configured = originalD1Configured;
+  }
+});
+
+test('crawl salvo examina todos os pins antes de filtrar e respeita limite de resultados', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalD1Configured = env.d1Configured;
+  const originalAccountId = env.CLOUDFLARE_ACCOUNT_ID;
+  const originalDatabaseId = env.CLOUDFLARE_D1_DATABASE_ID;
+  const originalCloudflareToken = env.CLOUDFLARE_API_TOKEN;
+  const originalSearchTimeout = env.SEARCH_PROVIDER_TIMEOUT_MS;
+  let resultRows = [];
+  const job = {
+    id: 'pinterest-test-crawl',
+    crawl_key: 'test-key',
+    provider: 'scraping',
+    query: 'biquini croche crochet chart',
+    params_json: JSON.stringify({ limit: 5, batchPages: 3, maxPages: null }),
+    status: 'complete',
+    next_bookmark: null,
+    pages_completed: 2,
+    results_count: 101,
+    attempts: 1,
+    error_message: null,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    completed_at: new Date().toISOString()
+  };
+
+  env.d1Configured = true;
+  env.CLOUDFLARE_ACCOUNT_ID = 'test-account';
+  env.CLOUDFLARE_D1_DATABASE_ID = '020a20e7-829a-4df3-9e15-ed37949901b5';
+  env.CLOUDFLARE_API_TOKEN = 'test-token';
+  env.SEARCH_PROVIDER_TIMEOUT_MS = 1000;
+  globalThis.fetch = async (_url, init) => {
+    const request = JSON.parse(init.body);
+    let results = [];
+    if (request.sql.includes('WHERE crawl_key = ?')) results = [job];
+    else if (request.sql.includes('WHERE id = ?')) results = [job];
+    else if (request.sql.includes('FROM SEARCH_CRAWL_ITEMS')) {
+      const [, limit, offset] = request.params;
+      results = resultRows.slice(offset, offset + limit);
+    }
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ success: true, result: [{ results, meta: {} }] })
+    };
+  };
+
+  resultRows = Array.from({ length: 101 }, (_, index) => {
+    const isRelevant = index === 100;
+    const pinId = `pin-${index + 1}`;
+    return {
+      id: index + 1,
+      external_id: pinId,
+      type: 'imagem',
+      source: 'pinterest',
+      title: isRelevant ? 'Bikini crochet chart' : 'Crochet chart pattern',
+      description: isRelevant ? 'Bikini diagram' : 'Crochet diagram',
+      url: `https://www.pinterest.com/pin/${pinId}/`,
+      canonical_url: `https://www.pinterest.com/pin/${pinId}/`,
+      image_url: `https://i.pinimg.com/originals/${pinId}.jpg`,
+      author: null,
+      language: 'pt-BR',
+      published_at: '2026-09-29T00:00:00.000Z',
+      tags_json: '[]',
+      metadata_json: JSON.stringify({ provider: 'pinterest_scraping', engine: 'pinterest' }),
+      source_quality: 0.65
+    };
+  });
+
+  try {
+    const output = await search({
+      q: 'biquini croche crochet chart', page: 1, limit: 5, limit_por_fonte: 5,
+      provedor: 'scraping', provider: undefined, todas_paginas: true,
+      max_paginas: undefined, tipo: undefined, fonte: undefined, idioma: undefined,
+      nivel: undefined, tecnica: undefined, material: undefined,
+      duracao_maxima: undefined, data_inicio: undefined, data_fim: undefined,
+      sort: 'relevancia', safe_search: '1', somente_graficos: true
+    });
+
+    assert.equal(output.totalFetched, 101);
+    assert.equal(output.total, 1);
+    assert.equal(output.results.length, 1);
+    assert.equal(output.results[0].title, 'Bikini crochet chart');
+  } finally {
+    globalThis.fetch = originalFetch;
+    env.d1Configured = originalD1Configured;
+    env.CLOUDFLARE_ACCOUNT_ID = originalAccountId;
+    env.CLOUDFLARE_D1_DATABASE_ID = originalDatabaseId;
+    env.CLOUDFLARE_API_TOKEN = originalCloudflareToken;
+    env.SEARCH_PROVIDER_TIMEOUT_MS = originalSearchTimeout;
+  }
+});
+
 test('modo auto NAO chama ValueSerp por padrão (incluir_valueserp ausente)', async () => {
   const originalFetch = globalThis.fetch;
   const originalD1Configured = env.d1Configured;

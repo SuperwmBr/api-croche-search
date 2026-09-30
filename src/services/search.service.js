@@ -17,12 +17,14 @@ import { buildSourceQueries, categoriesForSource } from '../classification/sourc
 import { env } from '../config/env.js';
 import { classifyCrochetChartImages } from '../classification/image-chart.js';
 import { detectType } from '../classification/type.js';
+import { recordSearchQuery } from '../persistence/search-query.persistence.js';
 
 const SEARCH_CACHE_VERSION = 'v3';
 const cacheKey = (params) => createHash('sha256').update(JSON.stringify({ version: SEARCH_CACHE_VERSION, ...params })).digest('hex');
 const timeoutSignal = (ms) => AbortSignal.timeout(ms);
 const isProviderFailure = (status) => status === 'error' || status === 'timeout' || status === 'partial';
 const CROCHET_CONFIDENCE_THRESHOLD = 0.5;
+const CRAWL_RESULT_READ_BATCH_SIZE = 250;
 const CHART_TOPIC_STOP_WORDS = new Set([
   'croche', 'crochet', 'grafico', 'graficos', 'grafica', 'graficas',
   'chart', 'charts', 'diagram', 'diagrams', 'diagrama', 'diagramas',
@@ -35,6 +37,22 @@ const CHART_TOPIC_SYNONYMS = {
   biquini: ['biquini', 'bikini'],
   bikini: ['bikini', 'biquini']
 };
+
+function logSearchQuery(params, { resultCount = 0, partial = false, durationMs = null } = {}) {
+  if (!env.d1Configured) return;
+  void recordSearchQuery({
+    query: params.q,
+    filters: {
+      types: params.somente_graficos ? ['grafico'] : (params.tipo || []),
+      provider: params.provedor || params.provider || 'auto',
+      sources: params.fonte || []
+    },
+    resultCount,
+    partial,
+    durationMs,
+    signal: timeoutSignal(3000)
+  }).catch((error) => console.error('[search-query-log]', error?.message || error));
+}
 
 function normalizeSearchText(value = '') {
   return String(value)
@@ -229,6 +247,24 @@ function crawlSummary(job) {
   };
 }
 
+async function readAllPinterestCrawlResults(crawlId) {
+  const results = [];
+  let offset = 0;
+
+  while (true) {
+    const batch = await getPinterestCrawlResults(crawlId, {
+      limit: CRAWL_RESULT_READ_BATCH_SIZE,
+      offset,
+      signal: timeoutSignal(env.SEARCH_PROVIDER_TIMEOUT_MS)
+    });
+    results.push(...batch);
+    if (batch.length < CRAWL_RESULT_READ_BATCH_SIZE) break;
+    offset += batch.length;
+  }
+
+  return results;
+}
+
 function storedCrawlPayload(params, variants, job, results, startedAt) {
   const requestedTypes = params.somente_graficos ? ['grafico'] : params.tipo;
   const textClassifiedResults = results.map((item) => ({
@@ -269,7 +305,10 @@ function storedCrawlPayload(params, variants, job, results, startedAt) {
 export async function search(params) {
   const key = cacheKey(params);
   const cached = memoryCache.get(key);
-  if (cached && !cached.partial) return { ...cached, cache: { layer: 'memory', hit: true } };
+  if (cached && !cached.partial) {
+    logSearchQuery(params, { resultCount: cached.total, partial: cached.partial, durationMs: 0 });
+    return { ...cached, cache: { layer: 'memory', hit: true } };
+  }
   // Nunca reaproveitar resultado parcial ou com erro. Isso evita perpetuar
   // um diagnóstico antigo de D1 depois que o schema ou a configuração foi corrigida.
   if (cached) memoryCache.delete(key);
@@ -297,8 +336,15 @@ export async function search(params) {
     });
     claimedCrawl = await claimPinterestCrawl(crawlContext.job.id);
     if (!claimedCrawl?.claimed) {
-      const stored = await getPinterestCrawlResults(crawlContext.job.id, { limit: params.limit, offset: 0 });
+      // O filtro por tipo e assunto roda em memória. Ler apenas params.limit
+      // antes dele podia esconder resultados válidos nas páginas seguintes.
+      const stored = await readAllPinterestCrawlResults(crawlContext.job.id);
       const payload = storedCrawlPayload(params, variants, claimedCrawl?.job || crawlContext.job, stored, startedAt);
+      logSearchQuery(params, {
+        resultCount: payload.total,
+        partial: payload.partial,
+        durationMs: payload.elapsedMs
+      });
       if (payload.collectionComplete) memoryCache.set(key, payload);
       return payload;
     }
@@ -360,9 +406,20 @@ export async function search(params) {
     } else {
       const fetched = Array.isArray(outcome.value.results) ? outcome.value.results.length : 0;
       providers[name] = outcome.value.partial ? 'partial' : fetched === 0 ? 'empty' : 'ok';
-      // No modo somente_graficos, a classificação por texto já feita pelo
-      // provedor filtra gráficos sem depender da análise visual opcional.
-      grouped[name] = rankAndFilter(outcome.value.results, onlyCharts ? null : params.tipo, params.q)
+      // Alguns provedores retornam type=imagem mesmo quando título/descrição
+      // deixam claro que o resultado é um gráfico. Reclassificar só pelo texto
+      // mantém o modo somente_graficos independente de visão/Groq.
+      const textClassifiedResults = onlyCharts
+        ? outcome.value.results.map((item) => ({
+            ...item,
+            type: detectType(item.url, item.type || 'imagem', {
+              title: item.title,
+              description: item.description,
+              tags: item.tags
+            })
+          }))
+        : outcome.value.results;
+      grouped[name] = rankAndFilter(textClassifiedResults, requestedTypes, params.q)
         .filter((item) => !onlyCharts || matchesRequestedChartTopic(item, params.q));
       const accepted = grouped[name].length;
       providerDetails[name] = {
@@ -525,6 +582,11 @@ export async function search(params) {
     }
   };
 
+  logSearchQuery(params, {
+    resultCount: payload.total,
+    partial: payload.partial,
+    durationMs: payload.elapsedMs
+  });
   if (!payload.partial && (!crawlJob || crawlJob.status === 'complete')) memoryCache.set(key, payload);
   return payload;
 }

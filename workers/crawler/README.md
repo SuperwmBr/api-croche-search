@@ -62,19 +62,26 @@ escolha deliberada — trade-off:
 
 ## De onde vêm as queries que o cron mantém atualizadas
 
-`SEARCH_QUERIES` (tabela que logaria buscas de usuários) existe no schema mas
-nada no código da API grava nela hoje. Em vez de depender disso,
-`deriveTrackedQueries()` deriva os termos a partir do que **já existe** em
-`SEARCH_RESULTS`:
+`deriveTrackedQueries()` prioriza termos de pesquisas recentes gravados pela
+API em `SEARCH_QUERIES`. Só entram consultas com termos de crochê ou consultas
+feitas com o filtro de gráficos; nesse segundo caso, se faltar contexto,
+`croche grafico` é acrescentado ao termo antes da coleta. Assim o crawler
+acompanha o que as pessoas realmente procuram sem depender de classificação
+visual. Depois ele completa a fila com termos observados nos resultados e
+uma lista-semente:
 
-1. Lê uma amostra recente de títulos/tags já persistidos.
-2. Extrai bigramas/trigramas de títulos, e tags individuais, que contenham um
+1. Lê até 500 pesquisas dos últimos 30 dias e prioriza as mais frequentes.
+2. Lê uma amostra recente de títulos/tags já persistidos.
+3. Extrai bigramas/trigramas de títulos, e tags individuais, que contenham um
    marcador de domínio (crochê/crochet/amigurumi/etc) — termos genéricos
    (`general`, `yarn` solto, etc.) são descartados mesmo que apareçam como
    tag, pra não poluir a fila com buscas irrelevantes.
-3. Completa com uma lista-semente pequena de queries fixas quando o banco
+4. Completa com uma lista-semente pequena de queries fixas quando o banco
    ainda tem pouco dado (garante que o primeiro deploy, com banco raso, não
    fique sem nada pra fazer).
+
+A API grava essa telemetria sem IP nem user-agent. A falha de gravação não
+interrompe a resposta da pesquisa.
 
 `TRACKED_QUERIES_LIMIT` tem um teto de segurança de 20 no código
 (`MAX_TRACKED_QUERIES_LIMIT`), mesmo que a variável de ambiente venha
@@ -138,4 +145,3 @@ ValueSerp, persistência) loga o que está fazendo. `/run` responde com o
 resultado do item processado nessa chamada; `/queue` mostra a contagem por
 status (`pending`/`done`/`failed`) — útil pra ver o progresso sem vasculhar
 logs.
-

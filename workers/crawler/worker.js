@@ -368,9 +368,8 @@ async function searchValueSerp({ query, limit = 20, page = 1, allPages = true, m
 }
 
 // ---------------------------------------------------------------------------
-// Derivação das queries a manter atualizadas
-// (a partir de títulos/tags já existentes em SEARCH_RESULTS - SEARCH_QUERIES
-// existe no schema mas nada grava nela hoje, ver README.md)
+// Derivação das queries a manter atualizadas. As pesquisas reais recentes
+// têm prioridade; títulos/tags indexados e as sementes completam a fila.
 // ---------------------------------------------------------------------------
 
 const QUERY_STOPWORDS = new Set([
@@ -398,8 +397,41 @@ function ngrams(tokens, n) {
   return out;
 }
 
-async function deriveTrackedQueries(db, limit = 10) {
+export async function deriveTrackedQueries(db, limit = 10) {
   const freq = new Map();
+  const userQueries = new Map();
+  try {
+    const { results } = await db.prepare(
+      `SELECT query_normalized, filters_json FROM SEARCH_QUERIES
+       WHERE created_at >= datetime('now', '-30 days')
+       ORDER BY created_at DESC LIMIT 500`
+    ).all();
+    console.log(`[queries] lidas ${results?.length ?? 0} busca(s) recentes em SEARCH_QUERIES`);
+
+    for (const [index, row] of (results ?? []).entries()) {
+      const query = normalizeText(row.query_normalized || '');
+      if (!query) continue;
+      let chartOnly = false;
+      try {
+        const filters = JSON.parse(row.filters_json || '{}');
+        chartOnly = Array.isArray(filters.types) && filters.types.includes('grafico');
+      } catch {}
+      if (!chartOnly && !CROCHET_MARKERS.some((marker) => query.includes(marker))) continue;
+
+      // A busca do front pode ser somente pelo nome da peça quando o filtro
+      // de gráficos está ativo. Acrescentamos o contexto de crochê/gráfico
+      // para o crawler executar uma busca textual correlata.
+      const crawlQuery = chartOnly && !CROCHET_MARKERS.some((marker) => query.includes(marker))
+        ? `${query} croche grafico`
+        : query;
+      const current = userQueries.get(crawlQuery) || { count: 0, firstIndex: index };
+      current.count += 1;
+      userQueries.set(crawlQuery, current);
+    }
+  } catch (error) {
+    console.error('[queries] falha ao ler SEARCH_QUERIES para derivar queries', error?.message || error);
+  }
+
   try {
     const { results } = await db.prepare(
       `SELECT title, tags_json FROM SEARCH_RESULTS WHERE status = 'active' ORDER BY indexed_at DESC LIMIT 500`
@@ -427,9 +459,12 @@ async function deriveTrackedQueries(db, limit = 10) {
   }
 
   const derived = [...freq.entries()].sort((a, b) => b[1] - a[1]).map(([phrase]) => phrase);
-  const combined = [...new Set([...derived, ...SEED_QUERIES])];
+  const recentUserQueries = [...userQueries.entries()]
+    .sort((a, b) => b[1].count - a[1].count || a[1].firstIndex - b[1].firstIndex)
+    .map(([query]) => query);
+  const combined = [...new Set([...recentUserQueries, ...derived, ...SEED_QUERIES])];
   const final = combined.slice(0, limit);
-  console.log(`[queries] derivadas: ${derived.length} termo(s) reais - lista final (${final.length}/${limit}): ${JSON.stringify(final)}`);
+  console.log(`[queries] buscas recentes: ${recentUserQueries.length}, derivadas de resultados: ${derived.length} - lista final (${final.length}/${limit}): ${JSON.stringify(final)}`);
   return final;
 }
 
@@ -707,7 +742,7 @@ async function processNextInQueue(env) {
 
 // Loga em TODA invocação - confirma na hora, sem adivinhar, se o código
 // que está rodando é o que você acabou de colar. Bumped a cada mudança.
-const WORKER_VERSION = 'v4-teto-diario-valueserp-2026-09-13';
+const WORKER_VERSION = 'v5-query-log-search-terms-2026-09-29';
 
 export default {
   async scheduled(event, env, ctx) {
