@@ -79,17 +79,19 @@ function rankAndFilter(items, allowedTypes = null, query = '') {
 }
 
 const CROCHET_QUERY_CONTEXT = new Set([
-  'croche', 'crochet', 'amigurami', 'granny', 'amigurumi', 'grafico', 'graficos',
+  'croche', 'crochet', 'granny', 'amigurumi', 'grafico', 'graficos',
   'diagrama', 'diagramas', 'chart', 'charts'
 ]);
 
 function correspondeAoAssuntoDaConsulta(item, query) {
   const queryTokens = normalizeSearchText(query)
     .split(/[^a-z0-9]+/)
-    .filter((token) => token.length >= 2 && !CHART_TOPIC_STOP_WORDS.has(token));
-  if (!queryTokens.length || !queryTokens.some((token) => CROCHET_QUERY_CONTEXT.has(token))) return false;
+    .filter((token) => token.length >= 2);
+  if (!queryTokens.some((token) => CROCHET_QUERY_CONTEXT.has(token))) return false;
 
-  const subjectTokens = queryTokens.filter((token) => !CROCHET_QUERY_CONTEXT.has(token));
+  const subjectTokens = queryTokens.filter((token) =>
+    !CROCHET_QUERY_CONTEXT.has(token) && !CHART_TOPIC_STOP_WORDS.has(token)
+  );
   if (!subjectTokens.length) return false;
 
   const metadata = normalizeSearchText(
