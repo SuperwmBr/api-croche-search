@@ -79,7 +79,7 @@ function rankAndFilter(items, allowedTypes = null, query = '') {
 }
 
 const CROCHET_QUERY_CONTEXT = new Set([
-  'croche', 'crochet', 'granny', 'amigurumi', 'grafico', 'graficos',
+  'croche', 'crochet', 'amigurumi', 'grafico', 'graficos',
   'diagrama', 'diagramas', 'chart', 'charts'
 ]);
 
