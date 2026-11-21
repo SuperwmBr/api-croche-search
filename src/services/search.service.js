@@ -19,7 +19,7 @@ import { classifyCrochetChartImages } from '../classification/image-chart.js';
 import { detectType } from '../classification/type.js';
 import { recordSearchQuery } from '../persistence/search-query.persistence.js';
 
-const SEARCH_CACHE_VERSION = 'v4';
+const SEARCH_CACHE_VERSION = 'v5';
 const cacheKey = (params) => createHash('sha256').update(JSON.stringify({ version: SEARCH_CACHE_VERSION, ...params })).digest('hex');
 const timeoutSignal = (ms) => AbortSignal.timeout(ms);
 const isProviderFailure = (status) => status === 'error' || status === 'timeout' || status === 'partial';
@@ -78,10 +78,39 @@ function rankAndFilter(items, allowedTypes = null, query = '') {
     .sort((a, b) => b.score - a.score);
 }
 
+const CROCHET_QUERY_CONTEXT = new Set([
+  'croche', 'crochet', 'amigurami', 'granny', 'amigurumi', 'grafico', 'graficos',
+  'diagrama', 'diagramas', 'chart', 'charts'
+]);
+
+function correspondeAoAssuntoDaConsulta(item, query) {
+  const queryTokens = normalizeSearchText(query)
+    .split(/[^a-z0-9]+/)
+    .filter((token) => token.length >= 2 && !CHART_TOPIC_STOP_WORDS.has(token));
+  if (!queryTokens.length || !queryTokens.some((token) => CROCHET_QUERY_CONTEXT.has(token))) return false;
+
+  const subjectTokens = queryTokens.filter((token) => !CROCHET_QUERY_CONTEXT.has(token));
+  if (!subjectTokens.length) return false;
+
+  const metadata = normalizeSearchText(
+    `${item.title || ''} ${item.description || ''} ${(item.tags || []).join?.(' ') || item.tags || ''} ${item.url || ''}`
+  );
+  const matched = subjectTokens.filter((token) => metadata.includes(token)).length;
+  return matched >= Math.max(1, Math.ceil(subjectTokens.length / 2));
+}
+
 function rankInInputOrder(items, allowedTypes = null, query = '') {
   return deduplicateResults(
     items
-      .map((item) => rankResult(item, query, allowedTypes))
+      .map((item) => {
+        const ranked = rankResult(item, query, allowedTypes);
+        if ((ranked.rankingSignals?.crochetConfidence ?? 0) >= CROCHET_CONFIDENCE_THRESHOLD
+          || !correspondeAoAssuntoDaConsulta(item, query)) return ranked;
+        return {
+          ...ranked,
+          rankingSignals: { ...ranked.rankingSignals, crochetConfidence: CROCHET_CONFIDENCE_THRESHOLD }
+        };
+      })
       .filter((item) => (item.rankingSignals?.crochetConfidence ?? 0) >= CROCHET_CONFIDENCE_THRESHOLD)
       .filter((item) => !allowedTypes?.length || allowedTypes.includes(item.type))
   );
