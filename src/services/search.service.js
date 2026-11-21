@@ -108,10 +108,13 @@ function rankInInputOrder(items, allowedTypes = null, query = '') {
         const ranked = rankResult(item, query, allowedTypes);
         if ((ranked.rankingSignals?.crochetConfidence ?? 0) >= CROCHET_CONFIDENCE_THRESHOLD
           || !correspondeAoAssuntoDaConsulta(item, query)) return ranked;
-        return {
-          ...ranked,
-          rankingSignals: { ...ranked.rankingSignals, crochetConfidence: CROCHET_CONFIDENCE_THRESHOLD }
-        };
+        return rankResult({
+          ...item,
+          rankingSignals: {
+            ...item.rankingSignals,
+            crochetConfidence: CROCHET_CONFIDENCE_THRESHOLD
+          }
+        }, query, allowedTypes);
       })
       .filter((item) => (item.rankingSignals?.crochetConfidence ?? 0) >= CROCHET_CONFIDENCE_THRESHOLD)
       .filter((item) => !allowedTypes?.length || allowedTypes.includes(item.type))
