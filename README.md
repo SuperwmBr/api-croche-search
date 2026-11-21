@@ -4,7 +4,7 @@ API vertical em JavaScript/Node.js para unificar conteúdos internos, YouTube e 
 
 ## Estado
 
-A API está publicada em `https://api.tutoriaiscroche.com.br`. Provedores sem credenciais aparecem como `not_configured`; falhas isoladas não derrubam a busca completa.
+A API está publicada em `https://api.icroche.com.br`. Provedores sem credenciais aparecem como `not_configured`; falhas isoladas não derrubam a busca completa.
 
 ## Executar
 
